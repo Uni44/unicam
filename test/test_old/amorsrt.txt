@@ -1,0 +1,5 @@
+?streamid=publish:cam&pkt_size=1316&latency=0
+
+?streamid=publish:cam&mode=caller&transtype=live&latency=4000&rcvlatency=4000&peerlatency=4000&pkt_size=1316&oheadbw=20&tlpktdrop=1
+
+?mode=caller&transtype=live&latency=800&rcvlatency=400&peerlatency=400&pkt_size=1316&tlpktdrop=1&oheadbw=10
