@@ -19,11 +19,13 @@ BUTTON_PINS = {
     'btn5': 22,
     'btn6': 27,
 }
-buttons = {name: Button(pin, pull_up=True, pin_factory=factory) for name, pin in BUTTON_PINS.items()}
+#buttons = {name: Button(pin, pull_up=True, pin_factory=factory) for name, pin in BUTTON_PINS.items()}
 
 blinking = False
 
 def start_blink():
+    if True:
+        return "Codigo de LED Desactivado."
     global blinking
     if not blinking:
         blinking = True
@@ -32,6 +34,8 @@ def start_blink():
     return "Ya está parpadeando."
 
 def stop_blink():
+    if True:
+        return "Codigo de LED Desactivado."
     global blinking
     if blinking:
         blinking = False
@@ -85,9 +89,9 @@ def on_release(name):
         zoom_state['direction'] = 0
 
 # Asignar handlers
-for name, button in buttons.items():
-    button.when_pressed = lambda n=name: on_press(n)
-    button.when_released = lambda n=name: on_release(n)
+#for name, button in buttons.items():
+#    button.when_pressed = lambda n=name: on_press(n)
+#    button.when_released = lambda n=name: on_release(n)
 
 def get_temperature():
     try:

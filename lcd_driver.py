@@ -4,11 +4,14 @@ import numpy as np
 import time
 import spidev
 from gpiozero import DigitalOutputDevice, PWMOutputDevice
+import RPi.GPIO as GPIO
 
 # --- Pines ---
 DC_PIN  = 24
 RST_PIN = 25
 BL_PIN  = 18
+T_CS  = 7      # CE1
+T_IRQ = 17     # interrupción opcional
 
 # --- Resolución LCD ---
 LCD_WIDTH = 320
@@ -25,6 +28,48 @@ spi = spidev.SpiDev()
 spi.open(0, 0)
 spi.max_speed_hz = 62500000
 spi.mode = 0b00
+
+# --- SPI táctil ---
+spi_touch = spidev.SpiDev()
+spi_touch.open(0, 1)     # SPI0 CE1
+spi_touch.max_speed_hz = 2000000
+spi_touch.mode = 0b00
+
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(T_IRQ, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+def touch_read_raw():
+    # Si no está tocando, no leo
+    if GPIO.input(T_IRQ) == 1:
+        return None
+
+    # Leer X
+    x = spi_touch.xfer2([0x90, 0x00, 0x00])
+    raw_x = ((x[1] << 8) | x[2]) >> 3
+
+    # Leer Y
+    y = spi_touch.xfer2([0xD0, 0x00, 0x00])
+    raw_y = ((y[1] << 8) | y[2]) >> 3
+
+    return raw_x, raw_y
+
+def get_touch():
+    p = touch_read_raw()
+    if p is None:
+        return None
+
+    raw_x, raw_y = p
+
+    # Rango del XPT2046 ~ 0..4095
+    x = int((raw_x / 4095) * LCD_WIDTH)
+    y = int((raw_y / 4095) * LCD_HEIGHT)
+
+    # Tu pantalla está en vertical, así que integro rotación
+    # 0xA8 en tu MADCTL → flip X + rotación vertical
+    # Entonces:
+    x = LCD_WIDTH - 1 - x
+
+    return x, y
 
 # --- Funciones cortas ---
 def cmd(c):

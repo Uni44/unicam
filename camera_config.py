@@ -8,39 +8,54 @@ CONFIG_FILE = "camera_config.json"
 
 def load_config():
     default_config = {
-        # Valores normalizados (0.0 a 1.0) o escalados correctos
-        "brightness": 0.5,        # 0.0 - 1.0
-        "contrast": 0.5,          # 0.0 - 1.0
-        "saturation": 0.5,        # 0.0 - 1.0
-        "sharpness": 0.5,         # 0.0 - 1.0
-        "exposure": 0.5,          # 0.0 - 1.0 (si está en manual)
-        "gamma": 1.0,             # Normalizado, típicamente 0.1 - 5.0
-        "gain": 1.0,              # 1.0 es neutro, subir = más ISO
-        "temperature": 4500,      # Kelvin (2000 = cálido, 8000 = frío)
-        "whitebalance": "auto",   # auto | incandescent | fluorescent | daylight | cloudy
-        "exposure-mode": "auto",  # auto | night | backlight | sports...
-        
-        # Resolución / FPS / Calidad
-        "resolution": "1920x1080", 
-        "fps": 30, 
-        "calidad": 80,            # JPEG calidad (0-100)
-
-        # Vista previa (más liviana para streaming)
-        "resolutionVista": "640x480",
-        "fpsVista": 24,
-        "calidadVista": 50,
-        "IPDestino": "rtsp://192.168.0.12:8554/cam",
-        "IPSDP": "127.0.0.1",
-        
-        "bitrate": "12M",
-        "protocolo": "tcp",
-        "preset": "ultrafast",
-        
-        "protocolo_stream": "RTSP",
-        "IPDestinoSRT": "127.0.0.1",
-        "puertoDestinoSRT": 0000,
-        "extraDataSRT": "?streamid=publish:cam&pkt_size=1316&latency=0"
-    }
+    "Brightness": 0,
+    "Contrast": 0.9,
+    "Saturation": 1.1,
+    "Sharpness": 1,
+    "ColourTemperature": 3600,
+    "ColourGains": 0,
+    "ExposureTime": 112015013,
+    "ExposureValue": 0,
+    "AnalogueGain": 4.44,
+    "AeFlickerPeriod": 500100,
+    "LensPosition": 7.5,
+    "SyncFrames": 500001,
+    "AfWindows": None,
+    "FrameDurationLimits": None,
+    "ScalerCrop": None,
+    "AwbEnable": True,
+    "AeEnable": False,
+    "AfTrigger": False,
+    "StatsOutputEnable": False,
+    "CnnEnableInputTensor": False,
+    "AwbMode": "0",
+    "AeExposureMode": "0",
+    "AeConstraintMode": "0",
+    "AeMeteringMode": "0",
+    "AeFlickerMode": "0",
+    "NoiseReductionMode": "4",
+    "HdrMode": "0",
+    "AfMode": "2",
+    "AfRange": "0",
+    "AfSpeed": "0",
+    "AfMetering": "0",
+    "AfPause": "2",
+    "SyncMode": "0",
+    "ExposureTimeMode": "0",
+    "AnalogueGainMode": "0",
+    "resolution": "1920x1080",
+    "fps": "30",
+    "modo": "Stream",
+    "bitrate": "16M",
+    "preset": "ultrafast",
+    "protocolo_stream": "RTSP",
+    "IPDestino": "rtsp://192.168.0.12:8554/cam",
+    "IPSDP": "0.0.0.0",
+    "protocolo": "tcp",
+    "IPDestinoSRT": "152.170.252.9",
+    "puertoDestinoSRT": "8890",
+    "extraDataSRT": "?streamid=publish:cam&mode=caller&transtype=live&latency=600&peerlatency=300&pkt_size=1316"
+}
 
     if not os.path.exists(CONFIG_FILE):
         return default_config
@@ -57,7 +72,6 @@ def load_config():
 CONFIG = load_config()
 
 WIDTH, HEIGHT = 1920, 1080
-running = False
 picam2 = None
 
 # 🔢 Actualizar resolución
@@ -72,49 +86,15 @@ else:
     print(f"⚠️ Resolución inválida: {res}")
 
 TARGET_FPS = CONFIG["fps"]
-JPEG_QUALITY = int(CONFIG["calidad"])
-zoom_factor = 1
-zoom_lock = threading.Lock()
-zoom_var = 0.04
-zooming_in = False
-zooming_out = False
-
 IPDestino = CONFIG["IPSDP"]
 
-PREVIEW_WIDTH, PREVIEW_HEIGHT = 1280, 720
-
-# Cola para compartir frames entre hilos
-latest_frame = None
-frame_lock = threading.Lock()
-
-# 🔢 Actualizar resolución
-res = CONFIG["resolutionVista"]
-if isinstance(res, str) and "x" in res:
-    try:
-        PREVIEW_WIDTH, PREVIEW_HEIGHT = map(int, res.lower().split("x"))
-        print(f"✅ Resolución vista actualizada a {PREVIEW_WIDTH}x{PREVIEW_HEIGHT}")
-    except ValueError:
-        print(f"⚠️ Error al parsear resolución vista: {res}")
-else:
-    print(f"⚠️ Resolución vista inválida: {res}")
-
-PREVIEW_FPS = int(CONFIG["fpsVista"])
-PREVIEW_JPEG_QUALITY = int(CONFIG["calidadVista"])
-
-video_thread = None
-video_thread_running = threading.Event()
-
 def save_config(data):
-    global CONFIG, WIDTH, HEIGHT, TARGET_FPS, JPEG_QUALITY, PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_FPS, PREVIEW_JPEG_QUALITY
+    global CONFIG, WIDTH, HEIGHT, TARGET_FPS, PREVIEW_WIDTH
 
     # Capturar valores anteriores
     prev_width = WIDTH
     prev_height = HEIGHT
     prev_fps = TARGET_FPS
-
-    prev_preview_width = PREVIEW_WIDTH
-    prev_preview_height = PREVIEW_HEIGHT
-    prev_preview_fps = PREVIEW_FPS
 
     # Guardar configuración en el archivo
     try:
@@ -150,108 +130,105 @@ def save_config(data):
         print(f"✅ FPS objetivo: {TARGET_FPS}")
     except Exception as e:
         print(f"⚠️ FPS inválido: {e}")
-
-    # 🖼️ Calidad JPEG
-    try:
-        calidad = int(data.get("calidad", 80))
-        if 10 <= calidad <= 100:
-            JPEG_QUALITY = calidad
-        else:
-            print("⚠️ Calidad fuera de rango (10–100), usando 80")
-            JPEG_QUALITY = 80
-        print(f"✅ Calidad JPEG: {JPEG_QUALITY}")
-    except Exception as e:
-        print(f"⚠️ Calidad inválida: {e}")
         
-    # 🔢 Actualizar resolución
-    res = data.get("resolutionVista", "1920x1080")
-    if isinstance(res, str) and "x" in res:
-        try:
-            PREVIEW_WIDTH, PREVIEW_HEIGHT = map(int, res.lower().split("x"))
-            print(f"✅ Resolución vista actualizada a {PREVIEW_WIDTH}x{PREVIEW_HEIGHT}")
-        except ValueError:
-            print(f"⚠️ Error al parsear resolución vista: {res}")
+    #reiniciar_original = (WIDTH != prev_width or HEIGHT != prev_height or TARGET_FPS != prev_fps)
+
+    #if reiniciar_original:
+        #print("🔁 Se requiere reiniciar la cámara original.")
+        #restart_video_thread()
+
+# Guarda la última configuración aplicada
+ULTIMA_CONFIG = {}
+
+def aplicar_camara_config(picam2, todo=False):
+    global ULTIMA_CONFIG
+
+    if todo:
+        ULTIMA_CONFIG = {}
+
+    nueva = load_config()
+
+    # Normalizar tipos
+    config_json = nueva.copy()
+    for k,v in list(config_json.items()):
+        if isinstance(v,str) and v.isdigit():
+            config_json[k] = int(v)
+
+    # Convertir ColourGains simple → [R, B]
+    if isinstance(config_json.get("ColourGains"), (int,float)):
+        config_json["ColourGains"] = [config_json["ColourGains"]] * 2
+
+    # Controles válidos
+    control_list = [
+        "Brightness", "Contrast", "Saturation", "Sharpness",
+        "ColourTemperature", "ColourGains",
+        "ExposureTime", "ExposureValue", "AnalogueGain",
+        "AeFlickerPeriod", "LensPosition", "SyncFrames",
+        "AfWindows", "FrameDurationLimits", "ScalerCrop",
+        "AwbEnable", "AeEnable", "AfTrigger", "StatsOutputEnable",
+        "CnnEnableInputTensor", "AwbMode", "AeExposureMode",
+        "AeConstraintMode", "AeMeteringMode", "AeFlickerMode",
+        "NoiseReductionMode", "HdrMode", "AfMode", "AfRange",
+        "AfSpeed", "AfMetering", "AfPause", "SyncMode",
+        "ExposureTimeMode", "AnalogueGainMode"
+    ]
+
+    # ----------------------------
+    # IGNORAR valores conflictivos
+    # ----------------------------
+    # White Balance
+    if config_json.get("AwbEnable", False):
+        # Auto WB: no forzar ColourTemperature ni ColourGains
+        config_json.pop("ColourTemperature", None)
+        config_json.pop("ColourGains", None)
     else:
-        print(f"⚠️ Resolución vista inválida: {res}")
-        
-    # 🎯 Actualizar FPS
-    try:
-        fpsVista = int(data.get("fpsVista", 24))
-        if fpsVista < 5:
-            print("⚠️ FPS vista demasiado bajo, usando mínimo 5")
-            fpsVista = 5
-        elif fpsVista > 90:
-            print("⚠️ FPS vista demasiado alto, usando máximo 90")
-            fpsVista = 90
-        PREVIEW_FPS = int(fpsVista)
-        print(f"✅ FPS vista objetivo: {PREVIEW_FPS}")
-    except Exception as e:
-        print(f"⚠️ FPS vista inválido: {e}")
-        
-    # 🖼️ Calidad JPEG
-    try:
-        calidadVista = int(data.get("calidadVista", 80))
-        if 10 <= calidadVista <= 100:
-            PREVIEW_JPEG_QUALITY = calidadVista
-        else:
-            print("⚠️ Calidad vista fuera de rango (10–100), usando 80")
-            PREVIEW_JPEG_QUALITY = 80
-        print(f"✅ Calidad vista JPEG: {PREVIEW_JPEG_QUALITY}")
-    except Exception as e:
-        print(f"⚠️ Calidad vista inválida: {e}")
-        
-    reiniciar_original = (WIDTH != prev_width or HEIGHT != prev_height or TARGET_FPS != prev_fps)
-    reiniciar_vista = (PREVIEW_WIDTH != prev_preview_width or PREVIEW_HEIGHT != prev_preview_height or PREVIEW_FPS != prev_preview_fps)
+        # Manual WB: asegurarse de que AwbEnable esté desactivado
+        config_json["AwbEnable"] = False
 
-    if reiniciar_original:
-        print("🔁 Se requiere reiniciar la cámara original.")
-        restart_video_thread()
+    # Auto Exposure
+    if config_json.get("AeEnable", False):
+        # Auto AE: no forzar ExposureTime ni AnalogueGain
+        config_json.pop("ExposureTime", None)
+        config_json.pop("AnalogueGain", None)
+    else:
+        # Manual AE: asegurar que AE esté off para poder aplicar valores
+        config_json["AeEnable"] = False
 
-    if reiniciar_vista:
-        print("🔁 Se requiere reiniciar la cámara de vista previa.")
+    # Auto Focus
+    af_mode = config_json.get("AfMode", 0)
+    if af_mode in (1, 2):  # AUTO / CONTINUOUS
+        config_json.pop("LensPosition", None)
+    else:
+        # Manual AF: asegurar modo manual para aplicar LensPosition
+        config_json["AfMode"] = 0  # manual
 
-def aplicar_camara_config(picam2):
-    import platform
-    so = platform.system()
-    try:
-        picam2.set_controls({
-            "Brightness": CONFIG.get("brightness", 0.5),
-            "Contrast": CONFIG.get("contrast", 0.5),
-            "Saturation": CONFIG.get("saturation", 0.5),
-            "Sharpness": CONFIG.get("sharpness", 0.5),
-            "AnalogueGain": CONFIG.get("gain", 1.0)
-        })
-        picam2.set_controls({
-            "NoiseReductionMode": CONFIG.get("noiseRed", 0),
-            "HdrMode": CONFIG.get("hdr", 0)
-        })
-        if CONFIG.get("whitebalance") != "auto":
-            picam2.set_controls({
-                "AwbEnable": False,
-                "ColourTemperature": CONFIG.get("temperature", 4500),
-                "AwbMode": int(CONFIG.get("awb-mode", 0))
-            })
-        else:
-            picam2.set_controls({"AwbEnable": True, "AwbMode": 0})
-        if CONFIG.get("exposure-mode") == "auto":
-            picam2.set_controls({"AeEnable": True})
-        else:
-            picam2.set_controls({
-                "AeEnable": False,
-                "ExposureTime": CONFIG.get("exposure", 0.5),
-                "AnalogueGain": CONFIG.get("gain", 1.0),
-                "AeExposureMode": int(CONFIG.get("ae-exposure-mode", 0)),
-                "AeConstraintMode": int(CONFIG.get("ae-constraint-mode", 0)),
-                "AeFlickerMode": int(CONFIG.get("ae-flicker-mode", 0))
-            })
-        gamma = CONFIG.get("gamma", 1.0)
-    except Exception:
-        pass
-    try:
-        picam2.set_controls({"Gamma": gamma})
-    except Exception:
-        pass
-    print("✅ Se aplicó la configuración de la cámara Arducam.")
+    # ----------------------------
+    # Detectar cambios reales
+    # ----------------------------
+    cambios = {}
+
+    for key in control_list:
+        if key not in config_json:
+            continue
+
+        nuevo = config_json[key]
+        anterior = ULTIMA_CONFIG.get(key)
+
+        if nuevo != anterior:
+            cambios[key] = nuevo
+
+    if not cambios:
+        print("✔ Sin cambios.")
+        return
+
+    # Aplicar solo los que cambiaron
+    picam2.set_controls(cambios)
+
+    # Actualizar estado
+    for k,v in cambios.items():
+        ULTIMA_CONFIG[k] = v
+
+    print("✔ Aplicado:", cambios)
 
 # Obtener configuración actual
 def get_camera_config():

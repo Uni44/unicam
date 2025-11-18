@@ -761,7 +761,9 @@ HTML_PW = '''
 
 	// Inicializar valores al cargar
 	window.onload = () => {
-	  controles.forEach(id => actualizarValor(id));
+	  [...sliders, ...checks, ...selects].forEach(id => {
+		actualizarValor(id);
+	  });
 	};
 
 	let debounceTimeout = null;
@@ -1538,165 +1540,227 @@ footer {
 		<input type="text" id="extraDataSRT" placeholder="?streamid=publish:cam&pkt_size=1316&latency=0">
 	</div>
 	<br><br>
-	<button id="settings-btn-1">Enviar</button>
+	<button id="settings-btn-1">Send</button>
 </div>
 </div>
 <div class="card">
-<div id="image-settings">
-    <h3>Ajustes de Imagen</h3>
+<div class="camera-controls">
+
+    <!-- ===================== -->
+    <!--  AJUSTES BÁSICOS      -->
+    <!-- ===================== -->
+    <h3>Ajustes Básicos</h3>
+
+    <label>Brightness (-1 a 1)</label>
+    <input type="range" id="Brightness" min="-1" max="1" step="0.01">
+
+    <label>Contrast (0 a 32)</label>
+    <input type="range" id="Contrast" min="0" max="32" step="0.1">
+
+    <label>Saturation (0 a 32)</label>
+    <input type="range" id="Saturation" min="0" max="32" step="0.1">
+
+    <label>Sharpness (0 a 16)</label>
+    <input type="range" id="Sharpness" min="0" max="16" step="0.1">
+
+    <label>Noise Reduction Mode</label>
+    <select id="NoiseReductionMode">
+        <option value="0">Off</option>
+        <option value="1">Fast</option>
+        <option value="2">High Quality</option>
+        <option value="3">Minimal</option>
+        <option value="4">Custom</option>
+    </select>
+
+    <label>HDR Mode</label>
+    <select id="HdrMode">
+        <option value="0">Off</option>
+        <option value="1">HDR1</option>
+        <option value="2">HDR2</option>
+        <option value="3">HDR3</option>
+        <option value="4">HDR4</option>
+    </select>
+
+
+    <!-- ===================== -->
+    <!--  WHITE BALANCE (AWB)  -->
+    <!-- ===================== -->
+    <h3>White Balance</h3>
+
+    <label>AWB Activado</label>
+    <input type="checkbox" id="AwbEnable">
+
+    <label>AWB Mode</label>
+    <select id="AwbMode">
+        <option value="0">Auto</option>
+        <option value="1">Incandescent</option>
+        <option value="2">Tungsten</option>
+        <option value="3">Fluorescent</option>
+        <option value="4">Indoor</option>
+        <option value="5">Daylight</option>
+        <option value="6">Cloudy</option>
+        <option value="7">Custom</option>
+    </select>
+
+    <label>Colour Temperature (100 - 100000)</label>
+    <input type="range" id="ColourTemperature" min="100" max="100000" step="100">
+
+    <label>Colour Gains (0 - 32)</label>
+    <input type="range" id="ColourGains" min="0" max="32" step="0.1">
+
+
+    <!-- ===================== -->
+    <!--     EXPOSICIÓN        -->
+    <!-- ===================== -->
+    <h3>Exposición</h3>
+
+    <label>AE Activado</label>
+    <input type="checkbox" id="AeEnable">
+
+    <label>Exposure Time (13 - 112015096)</label>
+    <input type="range" id="ExposureTime" min="13" max="112015096" step="100">
+
+    <label>Exposure Value (-8 a 8)</label>
+    <input type="range" id="ExposureValue" min="-8" max="8" step="0.1">
+
+    <label>Analogue Gain (1.12 a 16.0)</label>
+    <input type="range" id="AnalogueGain" min="1.12" max="16" step="0.01">
+
+    <label>AE Exposure Mode</label>
+    <select id="AeExposureMode">
+        <option value="0">Normal</option>
+        <option value="1">Short</option>
+        <option value="2">Long</option>
+        <option value="3">Custom</option>
+    </select>
+
+    <label>AE Constraint Mode</label>
+    <select id="AeConstraintMode">
+        <option value="0">Normal</option>
+        <option value="1">Highlight</option>
+        <option value="2">Shadow</option>
+        <option value="3">Custom</option>
+    </select>
+
+    <label>AE Metering Mode</label>
+    <select id="AeMeteringMode">
+        <option value="0">Centre</option>
+        <option value="1">Spot</option>
+        <option value="2">Matrix</option>
+        <option value="3">Custom</option>
+    </select>
+
+    <label>AE Flicker Mode</label>
+    <select id="AeFlickerMode">
+        <option value="0">Off</option>
+        <option value="1">Auto</option>
+    </select>
+
+    <label>AE Flicker Period</label>
+    <input type="range" id="AeFlickerPeriod" min="100" max="1000000" step="100">
+
+
+    <!-- ===================== -->
+    <!--       AUTOFOCUS       -->
+    <!-- ===================== -->
+    <h3>Autofocus</h3>
+
+    <label>AF Mode</label>
+    <select id="AfMode">
+        <option value="0">Manual</option>
+        <option value="1">Auto</option>
+        <option value="2">Continuous</option>
+    </select>
+
+    <label>AF Range</label>
+    <select id="AfRange">
+        <option value="0">Normal</option>
+        <option value="1">Macro</option>
+        <option value="2">Full</option>
+    </select>
+
+    <label>AF Speed</label>
+    <select id="AfSpeed">
+        <option value="0">Normal</option>
+        <option value="1">Fast</option>
+    </select>
+
+    <label>AF Metering</label>
+    <select id="AfMetering">
+        <option value="0">Auto</option>
+        <option value="1">Manual</option>
+    </select>
+
+    <label>AF Pause</label>
+    <select id="AfPause">
+        <option value="0">None</option>
+        <option value="1">Short</option>
+        <option value="2">Long</option>
+    </select>
+
+    <label>Lens Position (0 - 15)</label>
+    <input type="range" id="LensPosition" min="0" max="15" step="0.05">
+
+    <label>AF Trigger</label>
+    <input type="checkbox" id="AfTrigger">
+
+
+    <!-- ===================== -->
+    <!--        OTROS          -->
+    <!-- ===================== -->
+    <h3>Otros</h3>
+
+    <label>Stats Output Enable</label>
+    <input type="checkbox" id="StatsOutputEnable">
+
+    <label>Sync Mode</label>
+    <select id="SyncMode">
+        <option value="0">Off</option>
+        <option value="1">Sensor Sync</option>
+        <option value="2">Frame Sync</option>
+    </select>
+
+    <label>Sync Frames (1 - 1000000)</label>
+    <input type="range" id="SyncFrames" min="1" max="1000000" step="1">
+
+    <label>CNN Input Tensor</label>
+    <input type="checkbox" id="CnnEnableInputTensor">
 	
-    <!-- Brillo -->
-	<div class="setting">
-        <label for="brightness">Brillo</label>
-        <input type="range" id="brightness" min="-1" max="1" step="0.01" value="0">
-        <span id="brightness-value">0</span><br>
-	</div>
+	<!-- ===================== -->
+	<!--   CONTROLES EXTRA     -->
+	<!-- ===================== -->
+	<h3>Controles Avanzados del Sensor</h3>
 
-    <!-- Contraste -->
-	<div class="setting">
-        <label for="contrast">Contraste</label>
-        <input type="range" id="contrast" min="0" max="4" step="0.1" value="1">
-        <span id="contrast-value">1</span><br>
-	</div>
+	<!-- Exposure Time Mode -->
+	<label>Exposure Time Mode</label>
+	<select id="ExposureTimeMode">
+		<option value="0">Manual</option>
+		<option value="1">Auto</option>
+	</select>
 
-    <!-- Saturación -->
-	<div class="setting">
-        <label for="saturation">Saturación</label>
-        <input type="range" id="saturation" min="0" max="4" step="0.1" value="1">
-        <span id="saturation-value">1</span><br>
-	</div>
-	
-    <!-- Nitidez -->
-	<div class="setting">
-        <label for="sharpness">Nitidez</label>
-        <input type="range" id="sharpness" min="0" max="4" step="0.1" value="1">
-        <span id="sharpness-value">1</span><br>
-	</div>
+	<!-- Analogue Gain Mode -->
+	<label>Analogue Gain Mode</label>
+	<select id="AnalogueGainMode">
+		<option value="0">Manual</option>
+		<option value="1">Auto</option>
+	</select>
 
-    <!-- Ganancia (AnalogueGain) -->
-    <div class="setting">
-        <label for="gain">Ganancia</label>
-        <input type="range" id="gain" min="0" max="100" step="0.01" value="1">
-        <span id="gain-value">1</span><br>
-    </div>
+	<!-- AF Windows -->
+	<label>AF Windows (x, y, width, height)</label>
+	<input type="text" id="AfWindows" placeholder="0,0,65535,65535">
 
-    <!-- White Balance -->
-    <div class="setting">
-        <label for="whitebalance">White Balance</label>
-        <select id="whitebalance">
-            <option value="auto">Auto</option>
-            <option value="manual">Manual</option>
-        </select>
-        <span id="whitebalance-value">auto</span>
-    </div>
+	<!-- Frame Duration Limits -->
+	<label>Frame Duration Limits (min - max)</label>
+	<input type="text" id="FrameDurationLimits" placeholder="17849,112075593">
 
-    <!-- Temperatura de color -->
-    <div class="setting">
-        <label for="temperature">Temperatura (K)</label>
-        <input type="range" id="temperature" min="0" max="5000" step="10" value="4500">
-        <span id="temperature-value">4500</span><br>
-    </div>
-
-    <!-- AWB Mode -->
-    <div class="setting">
-        <label for="awb-mode">AWB Mode</label>
-        <select id="awb-mode">
-            <option value="0">Auto</option>
-            <option value="1">Incandescente</option>
-            <option value="2">Fluorescente</option>
-            <option value="3">Luz de día</option>
-            <option value="4">Nublado</option>
-            <option value="5">Sombra</option>
-            <option value="6">Tungsteno</option>
-            <option value="7">Flash</option>
-        </select>
-        <span id="awb-mode-value">0</span>
-    </div>
-
-    <!-- Exposure Mode -->
-    <div class="setting">
-        <label for="exposure-mode">Exposure Mode</label>
-        <select id="exposure-mode">
-            <option value="auto">Auto</option>
-            <option value="manual">Manual</option>
-        </select>
-        <span id="exposure-mode-value">auto</span>
-    </div>
-
-    <!-- AE Exposure Mode -->
-    <div class="setting">
-        <label for="ae-exposure-mode">AE Exposure Mode</label>
-        <select id="ae-exposure-mode">
-            <option value="0">Normal</option>
-            <option value="1">Corto</option>
-            <option value="2">Largo</option>
-            <option value="3">Custom</option>
-        </select>
-        <span id="ae-exposure-mode-value">0</span>
-    </div>
-
-    <!-- AE Metering -->
-    <div class="setting">
-        <label for="ae-metering">AE Metering</label>
-        <select id="ae-metering">
-            <option value="0">Promedio</option>
-            <option value="1">Centro</option>
-            <option value="2">Spot</option>
-            <option value="3">Matriz</option>
-        </select>
-        <span id="ae-metering-value">0</span>
-    </div>
-
-    <!-- AE Constraint Mode -->
-    <div class="setting">
-        <label for="ae-constraint-mode">AE Constraint</label>
-        <select id="ae-constraint-mode">
-            <option value="0">Normal</option>
-            <option value="1">Highlight</option>
-            <option value="2">Shadows</option>
-            <option value="3">Custom</option>
-        </select>
-        <span id="ae-constraint-mode-value">0</span>
-    </div>
-
-    <!-- AE Flicker Mode -->
-    <div class="setting">
-        <label for="ae-flicker-mode">AE Flicker</label>
-        <select id="ae-flicker-mode">
-            <option value="0">Off</option>
-            <option value="1">Auto</option>
-        </select>
-        <span id="ae-flicker-mode-value">0</span>
-    </div>
-
-    <!-- Tiempo de exposición -->
-    <div class="setting">
-        <label for="exposure">Exposure Time (μs)</label>
-        <input type="range" id="exposure" min="0" max="100000" step="100" value="20000">
-        <span id="exposure-value">20000</span><br>
-    </div>
-
-    <!-- Exposure Value (EV compensation) -->
-    <div class="setting">
-        <label for="exposure-ev">Exposure Value (EV)</label>
-        <input type="range" id="exposure-ev" min="-8" max="8" step="0.1" value="0">
-        <span id="exposure-ev-value">0</span><br>
-    </div>
-	
-	<div class="setting">
-        <label for="noiseRed">Noise</label>
-        <input type="range" id="noiseRed" min="0" max="4" step="1" value="0">
-        <span id="noiseRed-value">0</span><br>
-    </div>
-	
-	<div class="setting">
-        <label for="hdr">HDR</label>
-        <input type="range" id="hdr" min="0" max="4" step="1" value="0">
-        <span id="hdr-value">0</span><br>
-    </div>
-	<br>
-	<button id="settings-btn-2">Enviar</button>
+	<!-- Scaler Crop -->
+	<label>Scaler Crop (x, y, width, height)</label>
+	<input type="text" id="ScalerCrop" placeholder="0,0,4608,2592">
+	<br><br>
+	<button id="settings-btn-2">Send</button>
+	<button id="settings-btn-3">Reload all config</button>
 </div>
+
 	</div>
 	  <div class="card">
 		<h2>Configurar Wifi</h2>
@@ -1711,13 +1775,37 @@ footer {
 				<input name="password" type="text" placeholder="Contraseña">
 			</div>
 			<br><br>
-		  <button type="submit" class="btn">Enviar</button>
+		  <button type="submit" class="btn">Send</button>
 		</form>
 	</div>
   </section>
 
   <footer>By Uni44</footer>
   <script src="{{ url_for('static', filename='chart.js') }}"></script>
+  
+<script>
+// Seleccionar todos los sliders (input type="range")
+const sliders2 = document.querySelectorAll('input[type="range"]');
+
+sliders2.forEach(slider => {
+
+    // Crear un texto debajo del slider
+    const valueText = document.createElement("div");
+    valueText.style.fontSize = "12px";
+    valueText.style.marginTop = "4px";
+    valueText.style.color = "#fff";
+    valueText.textContent = slider.value;
+
+    // Insertar texto después del slider
+    slider.insertAdjacentElement("afterend", valueText);
+
+    // Actualizar cuando cambia
+    slider.addEventListener("input", () => {
+        valueText.textContent = slider.value;
+    });
+});
+</script>
+
   <script>
 	async function checkInternet() {
 		const led = document.getElementById('ledInternet');
@@ -1877,130 +1965,172 @@ footer {
 	
 	//CONFIG
 	
-	
-	
-	
-	
-	
-	// --- Sliders con valores numéricos ---
-	const sliders = [
-	  "brightness",   // -1.0 a 1.0
-	  "contrast",     // 0.0 a 32.0
-	  "saturation",   // 0.0 a 32.0
-	  "sharpness",    // 0.0 a 16.0
-	  //"gamma",        // 0.1 a 10.0
-	  "gain",         // 1.0 a 16.0 (AnalogueGain)
-	  "temperature",   // 2500 a 8000 (ColourTemperature)
-	  "exposure",
-	  "exposure-ev",
-	  "noiseRed",
-	  "hdr"
-	];
+	// ================================
+//      LISTA DE CONTROLES
+// ================================
 
-	// --- Selects con opciones predefinidas ---
-	const selects = {
-	  "whitebalance": document.getElementById("whitebalance"),  // Auto, Off, Tungsten, etc.
-	  "exposure-mode": document.getElementById("exposure-mode"),// auto/manual
-	  "awb-mode": document.getElementById("awb-mode"),
-	  "ae-exposure-mode": document.getElementById("ae-exposure-mode"),
-	  "ae-metering": document.getElementById("ae-metering"),
-	  "ae-constraint-mode": document.getElementById("ae-constraint-mode"),
-	  "ae-flicker-mode": document.getElementById("ae-flicker-mode"),
-	  "resolution": document.getElementById("resolution"),
-	  "fps": document.getElementById("fps"),
-	  "modo": document.getElementById("modo"),
-	  "bitrate": document.getElementById("bitrate"),
-	  "preset": document.getElementById("preset"),
-	  "protocolo_stream": document.getElementById("protocolo_stream")
-	};
+// Sliders numéricos reales del IMX708
+const sliders = [
+  "Brightness",
+  "Contrast",
+  "Saturation",
+  "Sharpness",
+  "ColourTemperature",
+  "ColourGains",
+  "ExposureTime",
+  "ExposureValue",
+  "AnalogueGain",
+  "AeFlickerPeriod",
+  "LensPosition",
+  "SyncFrames",
+  "AfWindows",
+  "FrameDurationLimits",
+  "ScalerCrop"
+];
+
+// Checkboxes
+const checks = [
+  "AwbEnable",
+  "AeEnable",
+  "AfTrigger",
+  "StatsOutputEnable",
+  "CnnEnableInputTensor"
+];
+
+// Selects
+const selects = [
+  "AwbMode",
+  "AeExposureMode",
+  "AeConstraintMode",
+  "AeMeteringMode",
+  "AeFlickerMode",
+  "NoiseReductionMode",
+  "HdrMode",
+  "AfMode",
+  "AfRange",
+  "AfSpeed",
+  "AfMetering",
+  "AfPause",
+  "SyncMode",
+  "ExposureTimeMode",
+  "AnalogueGainMode",
+  "resolution",
+  "fps",
+  "modo",
+  "bitrate",
+  "preset",
+  "protocolo_stream"
+];
 	
+	// ================================
+	//   Cargar configuración
+	// ================================
 	function cargarConfiguracion() {
-		// Cargar configuración al iniciar
-		fetch('/api/camera-config')
-		  .then(res => res.json())
-		  .then(config => {
-			sliders.forEach(key => {
-			  const el = document.getElementById(key);
-			  if (el && config[key] !== undefined) {
-				el.value = config[key];
-				actualizarValor(key);
-			  } else {
-				console.warn("No existe el control para:", key);
-			  }
-			});
+	  fetch('/api/camera-config')
+		.then(res => res.json())
+		.then(config => {
 
-			Object.entries(selects).forEach(([key, el]) => {
-			  if (el && config[key] !== undefined) {
-				el.value = config[key];
-				actualizarValor(key);
-			  } else {
-				console.warn("No existe el select para:", key);
-			  }
-			});
-			
-			document.getElementById("destino").value = config["IPDestino"];
-			document.getElementById("sdp").value = config["IPSDP"];
-			document.getElementById("protocolo").value = config["protocolo"];
-			document.getElementById("IPDestinoSRT").value = config["IPDestinoSRT"];
-			document.getElementById("puertoDestinoSRT").value = config["puertoDestinoSRT"];
-			document.getElementById("extraDataSRT").value = config["extraDataSRT"];
+		  // sliders
+		  sliders.forEach(id => {
+			const el = document.getElementById(id);
+			if (el && config[id] !== undefined) {
+			  el.value = config[id];
+			}
 		  });
-	}
-	// Ejecutar al iniciar
-	cargarConfiguracion();
-	// Repetir cada 1 minuto
-	setInterval(cargarConfiguracion, 60000);
 
-	// Guardar al cambiar valores
+		  // checkboxes
+		  checks.forEach(id => {
+			const el = document.getElementById(id);
+			if (el && config[id] !== undefined) {
+			  el.checked = config[id] ? true : false;
+			}
+		  });
+
+		  // selects
+		  selects.forEach(id => {
+			const el = document.getElementById(id);
+			if (el && config[id] !== undefined) {
+			  el.value = config[id];
+			}
+		  });
+
+		  // Configs extras (las dejo tal cual tenías)
+		  document.getElementById("destino").value = config["IPDestino"];
+		  document.getElementById("sdp").value = config["IPSDP"];
+		  document.getElementById("protocolo").value = config["protocolo"];
+		  document.getElementById("IPDestinoSRT").value = config["IPDestinoSRT"];
+		  document.getElementById("puertoDestinoSRT").value = config["puertoDestinoSRT"];
+		  document.getElementById("extraDataSRT").value = config["extraDataSRT"];
+		  actualizarSlidersAuto();
+		});
+	}
+	
+	// Función para actualizar todos los sliders creados automáticamente
+	function actualizarSlidersAuto() {
+		document.querySelectorAll('input[type="range"]').forEach(slider => {
+			const valueText = slider.nextElementSibling;
+			if (valueText) {
+				valueText.textContent = slider.value;
+			}
+		});
+	}
+
+	// Ejecutar al inicio
+	window.onload = cargarConfiguracion;
+	//setInterval(cargarConfiguracion, 60000);
+
+	// ================================
+	//   Guardar configuración
+	// ================================
 	function saveConfig() {
-	  const config = {};
-	  
-	  // sliders (números)
-	  sliders.forEach(key => {
-		let val = parseFloat(document.getElementById(key).value);
-		config[key] = isNaN(val) ? 0 : val;
-	  });
-
-	  // selects (texto o int)
-	  Object.entries(selects).forEach(([key, el]) => {
-		if (key === "fps" || key === "fpsVista") {
-		  config[key] = parseInt(el.value);
-		} else if (key.includes("calidad")) {
-		  config[key] = parseInt(el.value);
-		} else {
-		  config[key] = el.value;
+		const config = {};
+		
+		// sliders numéricos
+		sliders.forEach(id => {
+			const el = document.getElementById(id);
+			config[id] = parseFloat(el.value);
+		});
+		
+		// checkboxes
+		checks.forEach(id => {
+			const el = document.getElementById(id);
+			config[id] = el.checked;
+		});
+		
+		// selects
+		selects.forEach(id => {
+			const el = document.getElementById(id);
+			config[id] = el.value;
+		});
+		
+		// extras
+		config["IPDestino"] = document.getElementById("destino").value;
+		config["IPSDP"] = document.getElementById("sdp").value;
+		config["protocolo"] = document.getElementById("protocolo").value;
+		config["IPDestinoSRT"] = document.getElementById("IPDestinoSRT").value;
+		config["puertoDestinoSRT"] = document.getElementById("puertoDestinoSRT").value;
+		config["extraDataSRT"] = document.getElementById("extraDataSRT").value;
+		
+		// enviar al backend
+		fetch('/api/camera-config', {
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify(config)
+		})
+		.then(res => res.json())
+		.then(d => console.log("Guardado OK:", d));
 		}
-	  });
-	  
-	  config["IPDestino"] = document.getElementById("destino").value;
-	  config["IPSDP"] = document.getElementById("sdp").value;
-	  config["protocolo"] = document.getElementById("protocolo").value;
-	  config["IPDestinoSRT"] = document.getElementById("IPDestinoSRT").value;
-	  config["puertoDestinoSRT"] = document.getElementById("puertoDestinoSRT").value;
-	  config["extraDataSRT"] = document.getElementById("extraDataSRT").value;
-
-	  fetch('/api/camera-config', {
-		method: 'POST',
-		headers: {'Content-Type': 'application/json'},
-		body: JSON.stringify(config)
-	  })
-	  .then(res => res.json())
-	  .then(data => console.log("Guardado:", data));
-	}
-
-	// Lista de controles a monitorear (sin duplicados)
-	const controles = [...sliders, ...Object.keys(selects)];
-	controles.forEach(id => {
-	  const control = document.getElementById(id);
-	  if (control) {
-		control.addEventListener('input', () => actualizarValor(id));
+	
+	// ================================
+	//   Registrar eventos
+	// ================================
+	const todos = [...sliders, ...checks, ...selects];
+	todos.forEach(id => {
+	  const el = document.getElementById(id);
+	  if (el) {
+		el.addEventListener("input", () => saveConfigDebounced());
 	  }
 	});
-
-	// Inicializar valores al cargar
-	window.onload = () => {
-	  controles.forEach(id => actualizarValor(id));
-	};
 
 	let debounceTimeout = null;
 
@@ -2011,20 +2141,17 @@ footer {
 		}, 500);
 	}
 	
+	function forceReloadConfig() {
+    fetch("/force_full_reload", { method: "POST" })
+        .then(res => res.json())
+        .then(data => console.log("Config recargada:", data))
+        .catch(err => console.error("Error recargando config:", err));
+	}
+	
+	
 	document.getElementById("settings-btn-1").addEventListener("click", saveConfig);
 	document.getElementById("settings-btn-2").addEventListener("click", saveConfig);
-	
-	// Función para actualizar valores visibles
-		function actualizarValor(id) {
-		  const control = document.getElementById(id);
-		  const valorSpan = document.getElementById(id + '-value');
-
-		  if (control && valorSpan) {
-			valorSpan.textContent = control.value;
-		  } else {
-			console.warn("Elemento no encontrado:", id, control, valorSpan);
-		  }
-		}
+	document.getElementById("settings-btn-3").addEventListener("click", forceReloadConfig);
 	</script>
 </div>
 </body>

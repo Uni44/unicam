@@ -16,7 +16,6 @@ from datetime import datetime
 
 video_thread = None
 preview_thread = None
-jpeg_thread = None
 
 video_thread_running = threading.Event()
 rtsp_thread_running = threading.Event()
@@ -51,14 +50,8 @@ def video_stream_thread():
         main={"format": "YUV420", "size": (WIDTH, HEIGHT)}
     )
     picam2.configure(config)
-    picam2.set_controls({"AfMode": 2, "LensPosition": 0})
-    frame_time_us = int(1_000_000 / TARGET_FPS)
-    picam2.set_controls({
-        "ExposureTime": frame_time_us,
-        "FrameDurationLimits": (frame_time_us, frame_time_us)
-    })
     picam2.start()
-    aplicar_camara_config(picam2)
+    aplicar_camara_config(picam2, True)
     
     generar_sdp(ip=CONFIG.get("IPSDP"))
 
@@ -121,11 +114,16 @@ def video_stream_thread():
     
     try:
         while video_thread_running.is_set() and not stop_error:
-            frame = picam2.capture_array("main")
-            current_zoom = zoom_state['factor']
-            frame = zoom_yuv420(frame, WIDTH, HEIGHT, current_zoom)
-            proc.stdin.write(memoryview(frame))
-            latest_frame = memoryview(frame)
+            try:
+                frame = picam2.capture_array("main")
+                current_zoom = zoom_state['factor']
+                frame = zoom_yuv420(frame, WIDTH, HEIGHT, current_zoom)
+                proc.stdin.write(memoryview(frame))
+                latest_frame = memoryview(frame)
+            except Exception as e:
+                stop_error = True
+                print("❌ Error en stream video:", e)
+                PrintImageDisplay("img/error_stream.png")
     except Exception as e:
         stop_error = True
         print("❌ Error en hilo video:", e)
@@ -142,7 +140,7 @@ def video_stream_thread():
 last_restart_time = 0
 debounce_delay = 1.0  # segundos
 def restart_video_thread():
-    global video_thread, jpeg_thread, picam2, last_restart_time
+    global video_thread, picam2, last_restart_time
     
     now = time.time()
     if now - last_restart_time < debounce_delay:
@@ -165,8 +163,12 @@ def restart_video_thread():
     preview_thread.start()
 
 def lcd_preview_thread(): 
-    global latest_frame
+    global latest_frame, CONFIG
     start_time = datetime.now()
+    last_cfg_update = 0
+    UPDATE_DELAY = 2   # actualizar cada 2 segundos
+    ae_mode = "AUTO"
+    wb_mode = "AUTO"
     
     try:
         while video_thread_running.is_set():
@@ -182,24 +184,38 @@ def lcd_preview_thread():
                 time.sleep(0.01)
                 continue
                 
-            # Mostrar usando tu clase LCDPreview
+            # Actualizar CONFIG cada X segundos
+            now = time.time()
+            if now - last_cfg_update >= UPDATE_DELAY:
+                try:
+                    CONFIG = load_config()
+                    last_cfg_update = now
+                except:
+                    pass
+                
+                ae_mode = "AUTO"
+                if not CONFIG.get("AeEnable"):
+                    ae_mode = "MANUAL"
+                
+                wb_mode = "AUTO"
+                if not CONFIG.get("AwbEnable"):
+                    wb_mode = "MANUAL"
+                    
             elapsed_seconds = (datetime.now() - start_time).seconds
-            af_mode = CONFIG.get("exposure-mode").upper()
-            wb_mode = CONFIG.get("whitebalance").upper()
             zm = round(zoom_state['factor'], 2)
             Alevel = 100
             mute = True
                 
-            lcd_preview.show(latest_frame, width=WIDTH, height=HEIGHT, fps=TARGET_FPS, elapsed_seconds=elapsed_seconds, af_mode=af_mode, wb_mode=wb_mode, zm=zm, recording=False, stream_active=True, mode="STR", Alevel=Alevel, mute=mute, bitrate=CONFIG.get("bitrate"))
+            lcd_preview.show(latest_frame, width=WIDTH, height=HEIGHT, fps=TARGET_FPS, elapsed_seconds=elapsed_seconds, af_mode=ae_mode, wb_mode=wb_mode, zm=zm, recording=False, stream_active=True, mode="STR", Alevel=Alevel, mute=mute, bitrate=CONFIG.get("bitrate"))
             
             time.sleep(0.01)
     except Exception as e:
         print("Error en lcd_preview_thread_fast:", e)
 
-def apply_config_to_active_camera():
+def apply_config_to_active_camera(todo=False):
     global picam2, CONFIG
     if picam2 is not None:
-        aplicar_camara_config(picam2)
+        aplicar_camara_config(picam2, todo)
         CONFIG = load_config()
 
 def zoom_yuv420(frame, width, height, zoom_factor):

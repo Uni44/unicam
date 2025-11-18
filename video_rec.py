@@ -21,7 +21,6 @@ import shutil
 
 video_thread = None
 preview_thread = None
-jpeg_thread = None
 
 video_thread_running = threading.Event()
 
@@ -50,14 +49,8 @@ def video_stream_thread():
         main={"format": "YUV420", "size": (WIDTH, HEIGHT)}
     )
     picam2.configure(config)
-    picam2.set_controls({"AfMode": 2, "LensPosition": 0})
-    frame_time_us = int(1_000_000 / TARGET_FPS)
-    picam2.set_controls({
-        "ExposureTime": frame_time_us,
-        "FrameDurationLimits": (frame_time_us, frame_time_us)
-    })
     picam2.start()
-    aplicar_camara_config(picam2)
+    aplicar_camara_config(picam2, True)
     
     stop_error = False
     recording = False
@@ -112,7 +105,7 @@ def video_stream_thread():
 last_restart_time = 0
 debounce_delay = 1.0  # segundos
 def restart_rec_thread():
-    global video_thread, jpeg_thread, picam2, last_restart_time
+    global video_thread, picam2, last_restart_time
     
     now = time.time()
     if now - last_restart_time < debounce_delay:
@@ -145,10 +138,10 @@ def capture_rec():
     
     recTake = not recTake
 
-def apply_config_to_active_camera_rec():
+def apply_config_to_active_camera_rec(todo=False):
     global picam2, CONFIG
     if picam2 is not None:
-        aplicar_camara_config(picam2)
+        aplicar_camara_config(picam2, todo)
         CONFIG = load_config()
 
 ESTIMADO_MB_POR_MINUTO = 370
@@ -175,6 +168,10 @@ def lcd_preview_thread():
     recording = False
     last_info_update = 0
     minutos_restantes = minutos_disponibles()
+    last_cfg_update = 0
+    UPDATE_DELAY = 2   # actualizar cada 2 segundos
+    ae_mode = "AUTO"
+    wb_mode = "AUTO"
     
     try:
         while video_thread_running.is_set():   
@@ -206,13 +203,28 @@ def lcd_preview_thread():
                 minutos_restantes = minutos_disponibles()
                 last_info_update = time.time()
                 
-            af_mode = CONFIG.get("exposure-mode").upper()
-            wb_mode = CONFIG.get("whitebalance").upper()
+            # Actualizar CONFIG cada X segundos
+            now = time.time()
+            if now - last_cfg_update >= UPDATE_DELAY:
+                try:
+                    CONFIG = load_config()
+                    last_cfg_update = now
+                except:
+                    pass
+                
+                ae_mode = "AUTO"
+                if not CONFIG.get("AeEnable"):
+                    ae_mode = "MANUAL"
+                
+                wb_mode = "AUTO"
+                if not CONFIG.get("AwbEnable"):
+                    wb_mode = "MANUAL"
+                
             zm = round(zoom_state['factor'], 2)
             Alevel = 100
             mute = True
             
-            lcd_preview.show(memoryview(latest_frame), width=WIDTH, height=HEIGHT, fps=TARGET_FPS, elapsed_seconds=elapsed_seconds, af_mode=af_mode, wb_mode=wb_mode, zm=zm, recording=recTake, stream_active=False, mode="REC", Alevel=Alevel, mute=mute, bitrate=f"{minutos_restantes}M")
+            lcd_preview.show(memoryview(latest_frame), width=WIDTH, height=HEIGHT, fps=TARGET_FPS, elapsed_seconds=elapsed_seconds, af_mode=ae_mode, wb_mode=wb_mode, zm=zm, recording=recTake, stream_active=False, mode="REC", Alevel=Alevel, mute=mute, bitrate=f"{minutos_restantes}M")
             
             time.sleep(0.01)
     except Exception as e:

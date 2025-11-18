@@ -3,11 +3,16 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import math
-from lcd_driver import show_frame, LCD_WIDTH, LCD_HEIGHT, bl, clear_screen
+from lcd_driver import show_frame, LCD_WIDTH, LCD_HEIGHT, bl, clear_screen, get_touch, touch_read_raw
+import threading
+
+_last_touch = None
+_touch_running = True
 
 # Variables
 monitorState = True
 InMenu = False
+lcd_preview = None
 
 def changeMonitorState():
     global monitorState
@@ -42,7 +47,7 @@ last_restart_time = 0
 debounce_delay = 0.5  # segundos
 
 MENUS = {
-    "main": ["START", "WB", "EM", "MUTE", "MONITOR", "CAMERA", "EXIT"],
+    "main": ["START", "MUTE", "MONITOR", "CAMERA", "EXIT"],
     "camera": ["MODE", "RESTART", "SHUTDOWN", "BACK"],
     "modo": ["PICTURE", "STREAM", "REC", "BACK"],
 }
@@ -57,14 +62,6 @@ def SelecChange(change):
     lcd_preview.selected = (lcd_preview.selected + change) % len(itemsMenu)
     
 def ButtonClick():
-    global last_restart_time
-    
-    now = time.time()
-    if now - last_restart_time < debounce_delay:
-        print("⏳ Ignorado: debounce activo.")
-        return
-    last_restart_time = now
-    
     from camera_config import CONFIG, load_config, save_config
     from video_stream import restart_video_thread, apply_config_to_active_camera
     from foto_capture import capture_foto, apply_config_to_active_camera_foto
@@ -82,30 +79,6 @@ def ButtonClick():
                 capture_foto()
             if CONFIG.get("modo") == "Grabar":
                 capture_rec()
-            changeMenuState()
-            
-        if buttonSelected == "WB":
-            CONFIG = load_config()
-            if CONFIG.get("whitebalance") == "auto":
-                CONFIG["whitebalance"] = "manual"
-            else:
-                CONFIG["whitebalance"] = "auto"
-            apply_config_to_active_camera()
-            apply_config_to_active_camera_foto()
-            apply_config_to_active_camera_rec()
-            save_config(CONFIG)
-            changeMenuState()
-           
-        if buttonSelected == "EM":
-            CONFIG = load_config()
-            if CONFIG.get("exposure-mode") == "auto":
-                CONFIG["exposure-mode"] = "manual"
-            else:
-                CONFIG["exposure-mode"] = "auto"
-            apply_config_to_active_camera()
-            apply_config_to_active_camera_foto()
-            apply_config_to_active_camera_rec()
-            save_config(CONFIG)
             changeMenuState()
             
         if buttonSelected == "MUTE":
@@ -155,6 +128,7 @@ def ButtonClick():
             
         if buttonSelected == "BACK":
             DrawMenu("main")
+            
 def change_menu(new_menu):
     global current_menu, itemsMenu
     current_menu = new_menu
@@ -189,6 +163,104 @@ def draw_text_outline(draw, position, text, font, fill="white", outline="black")
                 draw.text((x+dx, y+dy), text, font=font, fill=outline)
     # texto principal
     draw.text((x, y), text, font=font, fill=fill)
+
+def procesarTactil():
+    global last_restart_time
+    
+    now = time.time()
+    if now - last_restart_time < debounce_delay:
+        #print("⏳ Ignorado: debounce activo.")
+        return
+    last_restart_time = now
+    
+    if not monitorState:
+        changeMonitorState()
+        print("MONITOR ON")
+        return
+        
+    from camera_config import CONFIG, load_config, save_config
+    from video_stream import restart_video_thread, apply_config_to_active_camera, zoom_state
+    from foto_capture import capture_foto, apply_config_to_active_camera_foto
+    from video_rec import capture_rec, apply_config_to_active_camera_rec
+        
+    x, y = _last_touch
+    if not InMenu:
+        if 270 <= x <= 330 and 270 <= y <= 337:
+            changeMenuState()
+            time.sleep(0.1)
+            lcd_preview.selected = 0
+            DrawMenu("main")
+            print("MENU")
+            return
+        if 270 <= x <= 330 and 205 <= y <= 250:
+            CONFIG = load_config()
+            if CONFIG.get("AwbEnable"):
+                CONFIG["AwbEnable"] = False
+            else:
+                CONFIG["AwbEnable"] = True
+            save_config(CONFIG)
+            apply_config_to_active_camera(True)
+            apply_config_to_active_camera_foto(True)
+            apply_config_to_active_camera_rec(True)
+            print("WB")
+            return
+        if 270 <= x <= 330 and 117 <= y <= 170:
+            CONFIG = load_config()
+            if CONFIG.get("AeEnable"):
+                CONFIG["AeEnable"] = False
+            else:
+                CONFIG["AeEnable"] = True
+            save_config(CONFIG)
+            apply_config_to_active_camera(True)
+            apply_config_to_active_camera_foto(True)
+            apply_config_to_active_camera_rec(True)
+            print("AE")
+            return
+        if 0 <= x <= 60 and 270 <= y <= 337:
+            zoom_state['direction'] = +1
+            print("ZOOM+")
+            return
+        if 0 <= x <= 60 and 205 <= y <= 250:
+            zoom_state['direction'] = 0
+            zoom_state['factor'] = 1.0
+            print("ZOOM=")
+            return
+        if 0 <= x <= 60 and 117 <= y <= 170:
+            zoom_state['direction'] = -1
+            print("ZOOM-")
+            return
+    else:
+        if itemsMenu:
+            idx = lcd_preview.hit_menu(x, y, itemsMenu)
+            if idx:
+                lcd_preview.selected = len(itemsMenu) - 1 - idx
+                ButtonClick()
+
+def touch_thread_loop():
+    global _last_touch
+
+    while _touch_running:
+        p = touch_read_raw()
+        if p:
+            raw_x, raw_y = p
+
+            x = int((raw_x / 4095) * LCD_WIDTH)
+            y = int((raw_y / 4095) * LCD_HEIGHT)
+
+            # Ajustar rotación según tu MADCTL (0xA8)
+            x = LCD_WIDTH - 1 - x
+
+            _last_touch = (x, y)
+        else:
+            _last_touch = None
+
+        if _last_touch:
+            #print("LCD Tactil:", _last_touch)
+            procesarTactil()
+        time.sleep(0.01)  # 10ms, no carga CPU
+
+touch_thread = threading.Thread(target=touch_thread_loop, daemon=True)
+touch_thread.start()
 
 class LCDPreview:
     def __init__(self):
@@ -259,15 +331,15 @@ class LCDPreview:
         img_final = Image.fromarray(arr)
         show_frame(img_final)
 
-    def hit_test(self, x, y, img_size):
+    def hit_menu(self, x, y, itemsMenu):
         """Detecta qué botón fue presionado según coordenadas táctiles"""
-        w, h = img_size
+        w, h = LCD_WIDTH, LCD_HEIGHT
         spacing = int(h * 0.02)
-        btn_h = int((h - spacing * (len(self.items) + 1)) / len(self.items))
+        btn_h = int((h - spacing * (len(itemsMenu) + 1)) / len(itemsMenu))
         btn_w = int(w * 0.8)
         x_center = w // 2
 
-        for i, label in enumerate(self.items):
+        for i, label in enumerate(itemsMenu):
             y0 = spacing + i * (btn_h + spacing)
             y1 = y0 + btn_h
             x0 = x_center - btn_w // 2
@@ -327,7 +399,7 @@ class LCDPreview:
             
             # Enviar botones al LCD
             side_img = Image.new("RGBA", (50, LCD_WIDTH-150), (0,0,0,255))
-            self.draw_side_buttons(side_img, buttons=["MENU", "DISP", "WB", "AE"])
+            self.draw_side_buttons(side_img, buttons=["MENU", "WB", "AE"])
             arr = np.array(side_img)
             arr = np.fliplr(arr)
             arr = arr[..., ::-1]
@@ -347,21 +419,6 @@ class LCDPreview:
         #    print(f"FPS LCD: {self.frames}")
         #    self.frames = 0
         #    self.last_time = now
-
-    def side_hit_test(self, x, y, img_size):
-        w, h = img_size
-        if 0 <= x <= 50:
-            y_rel = y - 90
-            if 0 <= y_rel <= 35:     return "MENU"
-            if 55 <= y_rel <= 90:    return "DISP"
-            if 110 <= y_rel <= 145:  return "WB"
-            if 165 <= y_rel <= 200:  return "AE"
-        if 420 <= x <= 470:
-            y_rel = y - 90
-            if 0 <= y_rel <= 35:     return "ZOOM+"
-            if 55 <= y_rel <= 90:    return "ZOOM="
-            if 110 <= y_rel <= 145:  return "ZOOM-"
-        return None
 
     def draw_side_buttons(self, base_img, buttons=[],flip=False):
         draw = ImageDraw.Draw(base_img)

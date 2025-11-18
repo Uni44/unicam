@@ -16,7 +16,7 @@ from video_stream import (
     video_stream_thread, restart_video_thread, zoom_yuv420, zoom_loop, zoom, rtp_to_rtsp_thread, apply_config_to_active_camera
 )
 from gpio_control import (
-    start_blink, blink_led, on_press, on_release, buttons
+    start_blink, blink_led, on_press, on_release
 )
 from wifi_manager import (
     wifi, configurar_wifi, ComprobeWifi, tiene_internet
@@ -85,6 +85,15 @@ def api_update_camera_config():
     apply_config_to_active_camera_foto()
     apply_config_to_active_camera_rec()
     return result
+
+@app.post("/force_full_reload")
+def force_full_reload():
+    try:
+        apply_config_to_active_camera(True)
+        apply_config_to_active_camera_foto(True)
+        apply_config_to_active_camera_rec(True)
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
 
 @app.route('/zoom', methods=['POST'])
 def api_zoom():
