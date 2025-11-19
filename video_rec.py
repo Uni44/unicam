@@ -163,7 +163,7 @@ def set_low_priority():
 
 def lcd_preview_thread(): 
     set_low_priority()
-    global latest_frame, minutos_restantes
+    global latest_frame, CONFIG, minutos_restantes
     start_time = datetime.now()
     recording = False
     last_info_update = 0

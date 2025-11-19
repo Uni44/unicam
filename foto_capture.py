@@ -58,7 +58,6 @@ def video_stream_thread():
         while video_thread_running.is_set() and not stop_error:
             try:
                 frame = picam2.capture_array("main")
-                current_zoom = zoom_state['factor']
                 if fotoTake:
                     start_blink()
                     for i in range(10):  # cantidad de fotos
@@ -127,8 +126,8 @@ def apply_config_to_active_camera_foto(todo=False):
         aplicar_camara_config(picam2, todo)
         CONFIG = load_config()
 
-def lcd_preview_thread(): 
-    global latest_frame
+def lcd_preview_thread():
+    global latest_frame, CONFIG
     start_time = datetime.now()
     last_cfg_update = 0
     UPDATE_DELAY = 2   # actualizar cada 2 segundos
@@ -169,10 +168,10 @@ def lcd_preview_thread():
                     wb_mode = "MANUAL"
                 
             elapsed_seconds = (datetime.now() - start_time).seconds
-            zm = round(zoom_state['factor'], 2)
+            zm = 0
             Alevel = 100
             mute = True
-                
+            
             lcd_preview.show(latest_frame, width=WIDTH2, height=HEIGHT2, fps=15, elapsed_seconds=elapsed_seconds, af_mode=ae_mode, wb_mode=wb_mode, zm=zm, recording=False, stream_active=fotoTake, mode="FOT", Alevel=Alevel, mute=mute)
             
             time.sleep(0.01)
