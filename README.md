@@ -9,7 +9,7 @@ El proyecto permite capturar fotos, grabar video y transmitir en vivo mediante R
 
 ![foto1](img/foto1.jpg)
 ![foto2](img/foto2.jpg)
-![foto3](img/foto3.jpg)
+![foto3](img/foto3.png)
 
 ## ✨ Características principales
 
