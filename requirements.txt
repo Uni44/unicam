@@ -1,0 +1,12 @@
+flask
+flask-socketio
+picamera2
+opencv-python
+numpy
+pillow
+gpiozero
+lgpio
+RPi.GPIO
+spidev
+psutil
+yappi

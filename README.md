@@ -1,9 +1,15 @@
-# 🎥 Unicam — Sistema de Cámara Digital para Raspberry Pi 5
+# 🎥 Unicam — V1.1.1
 
-**Unicam** es un sistema de cámara digital completo escrito en **Python**, diseñado específicamente para **Raspberry Pi 5** y módulos de cámara compatibles.  
+**Unicam** es un sistema de cámara digital completo escrito en **Python**, diseñado específicamente para **Raspberry Pi 5** y módulos de cámara compatibles.
 El proyecto permite capturar fotos, grabar video y transmitir en vivo mediante RTSP/SRT, combinando hardware económico con un workflow profesional.
 
 ---
+
+## 🎥 Unicam Pro V1
+
+![foto1](img/foto1.jpg)
+![foto2](img/foto2.jpg)
+![foto3](img/foto3.jpg)
 
 ## ✨ Características principales
 
@@ -18,23 +24,24 @@ El proyecto permite capturar fotos, grabar video y transmitir en vivo mediante R
   - Grabación fluida en **2K 30fps** sin pérdida.  
   - Procesamiento con **reducción de ruido**.  
   - Pipeline optimizado para la Pi 5.
+  - Guardado en formato **YUV420 → MP4**.
 
 - **📡 Streaming:**  
   - Transmisión de video a servidores remotos mediante **RTSP** o **SRT**.  
-  - Calidad estándar optimizada para baja latencia.  
-  - Pensado para monitoreo remoto, cámaras de seguridad o streaming móvil.
+  - Alta Calidad optimizada para baja latencia.  
+  - Pensado para streaming o conexión inalámbrica local.
 
 ---
 
 ## 🖥️ Panel de Control Web
 Incluye un servidor web integrado que permite:
 
-- Monitorear el sensor en tiempo real  
-- Cambiar configuraciones del sensor (AF, exposición, WB, ISO, resolución, etc.)  
-- Ajustar calidad y parámetros del stream  
-- Configurar WiFi  
-- Crear un **hotspot WiFi automáticamente** si no se detecta internet  
-- Ver estado del sistema, CPU, temperatura y modos activos  
+- Monitorear el sensor en tiempo real.
+- Cambiar configuraciones del sensor (AF, exposición, WB, ISO, resolución, etc.).
+- Ajustar calidad y parámetros del stream.
+- Configurar WiFi.
+- Crear un **hotspot WiFi automáticamente** si no se detecta internet.
+- Ver estado del sistema, CPU, temperatura y modos activos. 
 
 Perfecto para controlar la cámara desde un teléfono o una laptop sin cables.
 
@@ -43,11 +50,11 @@ Perfecto para controlar la cámara desde un teléfono o una laptop sin cables.
 ## 📺 Interfaz en Pantalla (LCD TFT)
 Soporte integrado para:
 
-- Pantalla **480×320 TFT** en modo landscape  
-- Soporte para **táctil**  
-- Vista previa de cámara en vivo  
-- HUD con modo, FPS, nivel de batería/energía (si se implementa), estado del encoder  
-- Posibilidad de controlar todas las funciones desde la pantalla  
+- Pantalla **480×320 TFT** en modo landscape.
+- Soporte para **táctil**.  
+- Vista previa de cámara en vivo.
+- HUD con modo, FPS, nivel de batería (proximamente).
+- Posibilidad de cambiar modos manuales o automaticos funciones desde la pantalla.
 
 ---
 
@@ -66,7 +73,7 @@ Soporte integrado para:
 
 ### 1. Clonar el repositorio
 ```bash
-git clone https://github.com/tuusuario/unicam.git
+git clone https://github.com/Uni44/unicam.git
 cd unicam
 ````
 
@@ -100,6 +107,6 @@ Este proyecto se distribuye bajo la licencia **MIT**, lo que permite usarlo, mod
 
 ## 👤 Autor
 
-Proyecto creado por **Uni**, desarrollado para la cámara **Unicam**.
+Proyecto creado por **Uni44**, desarrollado para la cámara **Unicam**.
 
 ---
