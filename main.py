@@ -4,13 +4,14 @@ import threading
 import time
 import psutil
 import subprocess
-from htmlTemplates import HTML_PW, HTML_OR, HTML_INICIO, HTML_COF
+from htmlTemplates import HTML_INICIO, HTML_COF
 from lcd_preview import PrintImageDisplay
 from PIL import Image, ImageOps
 import os
 import yappi
+import logging
 from camera_config import (
-    load_config, save_config, aplicar_camara_config, get_camera_config, update_camera_config, CONFIG
+    load_config, save_config, aplicar_camara_config, get_camera_config, update_camera_config, CONFIG, getRunningCamera
 )
 from video_stream import (
     video_stream_thread, restart_video_thread, zoom_yuv420, zoom_loop, zoom, rtp_to_rtsp_thread, apply_config_to_active_camera
@@ -27,6 +28,13 @@ import gpio_control
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode="threading")
+
+logging.basicConfig(
+    filename='sistema_status.log', # Nombre del archivo de log
+    level=logging.INFO, # Nivel de registro (INFO para datos generales)
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S' # Formato de fecha y hora
+)
 
 start_time = time.time()
 
@@ -103,29 +111,6 @@ def api_zoom():
 def index():
     return render_template_string(HTML_INICIO)
 
-@app.route('/preview')
-def preview():
-    return render_template_string(HTML_PW)
-
-@app.route('/original')
-def original():
-    return render_template_string(HTML_OR)
-
-@app.route("/system-info")
-def system_info():
-    cpu_percent = psutil.cpu_percent()
-    ram = psutil.virtual_memory()
-    temp = gpio_control.get_temperature()
-    disk = int(psutil.disk_usage('/').percent)
-    return jsonify({
-        "cpu": cpu_percent,
-        "ram_used": round(ram.used / 1024 / 1024 / 1024, 1),
-        "ram_total": round(ram.total / 1024 / 1024 / 1024, 1),
-        "temperature": temp,
-        "disk": disk,
-        "uptime": start_time
-    })
-
 @app.route('/status')
 def status():
     cpu = int(psutil.cpu_percent())
@@ -135,9 +120,41 @@ def status():
     try:
         temp = int(open("/sys/class/thermal/thermal_zone0/temp").read()) // 1000
     except:
-        temp = 50
+        temp = 0
     disk = int(psutil.disk_usage('/').percent)
-    return jsonify(cpu=cpu, ram=ram, temp=temp, disk=disk, cpu_freq=cpu_freq)
+    running = getRunningCamera()
+    
+    log_message = (
+        f"CPU={cpu}%, RAM={ram}%, Temp={temp}°C, "
+        f"Disk={disk}%, Freq={cpu_freq}MHz, Camera={'ON' if running else 'OFF'}"
+    )
+    logging.info(log_message)
+
+    return jsonify(cpu=cpu, ram=ram, temp=temp, disk=disk, cpu_freq=cpu_freq, running=running)
+
+def log_system_status():
+    cpu = int(psutil.cpu_percent())
+    ram = int(psutil.virtual_memory().percent)
+    temp = 0
+    cpu_freq = gpio_control.get_cpu_freq() # Asumo que esta función existe
+    try:
+        temp = int(open("/sys/class/thermal/thermal_zone0/temp").read()) // 1000
+    except:
+        temp = 0
+    disk = int(psutil.disk_usage('/').percent)
+    running = getRunningCamera() # Asumo que esta función existe
+    
+    log_message = (
+        f"CPU={cpu}%, RAM={ram}%, Temp={temp}°C, "
+        f"Disk={disk}%, Freq={cpu_freq}MHz, Camera={'ON' if running else 'OFF'}"
+    )
+    logging.info(log_message)
+
+# Función para ejecutar el registro cada 60 segundos
+def background_logging_task():
+    while True:
+        log_system_status()
+        time.sleep(60) # Espera 60 segundos (puedes ajustar este valor)
 
 @app.route('/restart', methods=['POST'])
 def restart():
@@ -173,6 +190,9 @@ if __name__ == '__main__':
         restart_video_thread()
     if CONFIG.get("modo") == "Grabar":
         restart_rec_thread()
+        
+    log_thread = threading.Thread(target=background_logging_task, daemon=True)
+    log_thread.start()
         
     try:
         socketio.run(app, host='0.0.0.0', port=8044, allow_unsafe_werkzeug=True)

@@ -4,7 +4,7 @@ import subprocess
 from flask import request
 from picamera2 import Picamera2
 import cv2
-from camera_config import WIDTH, HEIGHT, TARGET_FPS, IPDestino, aplicar_camara_config, generar_sdp, CONFIG, picam2
+from camera_config import WIDTH, HEIGHT, TARGET_FPS, IPDestino, aplicar_camara_config, generar_sdp, CONFIG, picam2, changeRunningCamera
 from threading import Thread
 from lcd_preview import LCDPreview, monitorState, PrintImageDisplay, InMenu, lcd_preview, getInMenuState, getMonitorState
 from queue import Queue
@@ -50,10 +50,11 @@ def video_stream_thread():
     picam2.start()
     aplicar_camara_config(picam2, True)
 
+    changeRunningCamera(True)
+
     start_time = time.time()
     frame_count = 0
     stop_error = False
-    
     try:
         while video_thread_running.is_set() and not stop_error:
             try:
@@ -74,15 +75,23 @@ def video_stream_thread():
             except Exception as e:
                 stop_error = True
                 print("❌ Error capturando frame:", e)
+                PrintImageDisplay("img/error_stream.png")
+                stop_blink()
+                changeRunningCamera(False)
     except Exception as e:
         stop_error = True
         print("❌ Error en hilo video:", e)
+        PrintImageDisplay("img/error_stream.png")
+        stop_blink()
+        changeRunningCamera(False)
     finally:
         video_thread_running.clear()
         picam2.close()
         cv2.destroyAllWindows()
         print("🔴 Hilo de captura de foto parado.")
         PrintImageDisplay("img/error_stream.png")
+        stop_blink()
+        changeRunningCamera(False)
 
 last_restart_time = 0
 debounce_delay = 1.0  # segundos

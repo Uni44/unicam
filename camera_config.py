@@ -4,7 +4,16 @@ import threading
 from flask import jsonify, request
 import platform
 
+CAMERA_RUNNING = False
 CONFIG_FILE = "camera_config.json"
+
+def changeRunningCamera(estado):
+    global CAMERA_RUNNING
+    CAMERA_RUNNING = estado
+
+def getRunningCamera():
+    global CAMERA_RUNNING
+    return CAMERA_RUNNING
 
 def load_config():
     default_config = {
