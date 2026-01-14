@@ -4,7 +4,7 @@ import subprocess
 from flask import request
 from picamera2 import Picamera2
 import cv2
-from camera_config import WIDTH, HEIGHT, TARGET_FPS, IPDestino, aplicar_camara_config, generar_sdp, CONFIG, picam2, load_config, changeRunningCamera
+from camera_config import WIDTH, HEIGHT, TARGET_FPS, IPDestino, aplicar_camara_config, generar_sdp, CONFIG, picam2, load_config, changeRunningCamera, getMute, get_audio_level
 from threading import Thread
 from lcd_preview import LCDPreview, monitorState, PrintImageDisplay, InMenu, lcd_preview, getInMenuState, getMonitorState
 from queue import Queue
@@ -56,6 +56,37 @@ def video_stream_thread():
     
     stop_error = False
     recording = False
+    
+    os.environ["SDL_VIDEO_ALLOW_SCREENSAVER"] = "1"
+    os.environ["SDL_MOUSE_RELATIVE"] = "1"
+    os.environ["SDL_NOMOUSE"] = "1"
+    subprocess.Popen(['unclutter', '-idle', '0'])
+    hdmiState = True
+    opcion_hdmi = CONFIG.get("hdmi")
+    proc_hdmi = None
+    if opcion_hdmi == "Off":
+        hdmiState = False
+    res_hdmi = f"{WIDTH}x{HEIGHT}"
+    if opcion_hdmi == "Mid":
+        res_hdmi = "1280x720"
+    elif opcion_hdmi == "Low": # El tercero
+        res_hdmi = "640x360"
+    cmd_hdmi = [
+        'ffmpeg',
+        '-f', 'rawvideo',
+        '-pixel_format', 'yuv420p',
+        '-video_size', f'{WIDTH}x{HEIGHT}',
+        '-i', '-', 
+        '-vf', f'scale={res_hdmi}:flags=neighbor', 
+        '-f', 'sdl',
+        '-window_fullscreen', '1',
+        '-vsync', '0', 
+        'SDL_Display'
+    ]
+    if hdmiState:
+        with open("hdmi_log.txt", "wb") as f:
+            proc_hdmi = subprocess.Popen(cmd_hdmi, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
+            
     try:
         while video_thread_running.is_set() and not stop_error:
             frame = picam2.capture_array("main")
@@ -79,6 +110,19 @@ def video_stream_thread():
                     #"-fps_mode", "passthrough",
                     output_name
                 ]
+                
+                if CONFIG.get("mic"):
+                    cmd.extend([
+                        '-f', 'alsa',
+                        '-ac', '1',
+                        '-i', CONFIG.get("mic"),
+                        '-c:a', 'aac',
+                        '-b:a', '128k',
+                        '-thread_queue_size', '1024'
+                    ])
+                else:
+                    print("No se detecto micrifono: transmision solo de video.")
+                
                 with open("rec_log.txt", "wb") as f:
                     ffmpeg_proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
                 recording = True
@@ -92,6 +136,8 @@ def video_stream_thread():
                 stop_blink()
             if recording and ffmpeg_proc:
                 ffmpeg_proc.stdin.write(memoryview(frame))
+            if hdmiState:
+                proc_hdmi.stdin.write(memoryview(frame))
             latest_frame = memoryview(frame)
     except Exception as e:
         stop_error = True
@@ -210,6 +256,8 @@ def lcd_preview_thread():
                 last_info_update = time.time()
                 
             # Actualizar CONFIG cada X segundos
+            Alevel = 100
+            mute = True
             now = time.time()
             if now - last_cfg_update >= UPDATE_DELAY:
                 try:
@@ -225,10 +273,15 @@ def lcd_preview_thread():
                 wb_mode = "AUTO"
                 if not CONFIG.get("AwbEnable"):
                     wb_mode = "MANUAL"
-                
+                    
+                if getMute():
+                    Alevel = 100
+                    mute = True
+                else:
+                    Alevel = 44#get_audio_level()
+                    mute = False
+                    
             zm = round(zoom_state['factor'], 2)
-            Alevel = 100
-            mute = True
             
             lcd_preview.show(memoryview(latest_frame), width=WIDTH, height=HEIGHT, fps=TARGET_FPS, elapsed_seconds=elapsed_seconds, af_mode=ae_mode, wb_mode=wb_mode, zm=zm, recording=recTake, stream_active=False, mode="REC", Alevel=Alevel, mute=mute, bitrate=f"{minutos_restantes}M")
             

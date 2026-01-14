@@ -3,68 +3,99 @@ import os
 import threading
 from flask import jsonify, request
 import platform
+import sounddevice as sd
+import numpy as np
+import alsaaudio
 
+mixer = None
+    
 CAMERA_RUNNING = False
 CONFIG_FILE = "camera_config.json"
+MIC_MUTE = False
 
-def changeRunningCamera(estado):
-    global CAMERA_RUNNING
-    CAMERA_RUNNING = estado
+MIC_DEVICE = None   # None → sounddevice elige el default (tu USB)
+SAMPLE_RATE = 48000
+FRAME_SIZE = 1024
 
-def getRunningCamera():
-    global CAMERA_RUNNING
-    return CAMERA_RUNNING
+def get_audio_level():
+    """Devuelve el nivel del micrófono en una escala de 0 a 100."""
+    try:
+        audio = sd.rec(
+            frames=FRAME_SIZE,
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype='float32',
+            device=MIC_DEVICE
+        )
+        sd.wait()
+
+        rms = np.sqrt(np.mean(audio ** 2))
+        db = 20 * np.log10(rms + 1e-8)   # evitar log(0)
+
+        # Convertir dB a nivel 0-100
+        # -60 dB = silencio → 0
+        # 0 dB = volumen máximo → 100
+        level = np.interp(db, [-60, 0], [0, 100])
+        level = np.clip(level, 0, 100)
+
+        return int(level)
+
+    except Exception as e:
+        print("❌ Error al medir audio:", e)
+        return 0
 
 def load_config():
     default_config = {
-    "Brightness": 0,
-    "Contrast": 0.9,
-    "Saturation": 1.1,
-    "Sharpness": 1,
-    "ColourTemperature": 3600,
-    "ColourGains": 0,
-    "ExposureTime": 112015013,
-    "ExposureValue": 0,
-    "AnalogueGain": 4.44,
-    "AeFlickerPeriod": 500100,
-    "LensPosition": 7.5,
-    "SyncFrames": 500001,
-    "AfWindows": None,
-    "FrameDurationLimits": None,
-    "ScalerCrop": None,
-    "AwbEnable": True,
-    "AeEnable": False,
-    "AfTrigger": False,
-    "StatsOutputEnable": False,
-    "CnnEnableInputTensor": False,
-    "AwbMode": "0",
-    "AeExposureMode": "0",
-    "AeConstraintMode": "0",
-    "AeMeteringMode": "0",
-    "AeFlickerMode": "0",
-    "NoiseReductionMode": "4",
-    "HdrMode": "0",
-    "AfMode": "2",
-    "AfRange": "0",
-    "AfSpeed": "0",
-    "AfMetering": "0",
-    "AfPause": "2",
-    "SyncMode": "0",
-    "ExposureTimeMode": "0",
-    "AnalogueGainMode": "0",
-    "resolution": "1920x1080",
-    "fps": "30",
-    "modo": "Stream",
-    "bitrate": "16M",
-    "preset": "ultrafast",
-    "protocolo_stream": "RTSP",
-    "IPDestino": "rtsp://192.168.0.12:8554/cam",
-    "IPSDP": "0.0.0.0",
-    "protocolo": "tcp",
-    "IPDestinoSRT": "152.170.252.9",
-    "puertoDestinoSRT": "8890",
-    "extraDataSRT": "?streamid=publish:cam&mode=caller&transtype=live&latency=600&peerlatency=300&pkt_size=1316"
-}
+        "Brightness": 0,
+        "Contrast": 0.9,
+        "Saturation": 1.1,
+        "Sharpness": 1,
+        "ColourTemperature": 3600,
+        "ColourGains": 0,
+        "ExposureTime": 112015013,
+        "ExposureValue": 0,
+        "AnalogueGain": 4.44,
+        "AeFlickerPeriod": 500100,
+        "LensPosition": 7.5,
+        "SyncFrames": 500001,
+        "AfWindows": None,
+        "FrameDurationLimits": None,
+        "ScalerCrop": None,
+        "AwbEnable": True,
+        "AeEnable": False,
+        "AfTrigger": False,
+        "StatsOutputEnable": False,
+        "CnnEnableInputTensor": False,
+        "AwbMode": "0",
+        "AeExposureMode": "0",
+        "AeConstraintMode": "0",
+        "AeMeteringMode": "0",
+        "AeFlickerMode": "0",
+        "NoiseReductionMode": "4",
+        "HdrMode": "0",
+        "AfMode": "2",
+        "AfRange": "0",
+        "AfSpeed": "0",
+        "AfMetering": "0",
+        "AfPause": "2",
+        "SyncMode": "0",
+        "ExposureTimeMode": "0",
+        "AnalogueGainMode": "0",
+        "resolution": "1920x1080",
+        "fps": "30",
+        "modo": "Stream",
+        "bitrate": "16M",
+        "preset": "ultrafast",
+        "protocolo_stream": "RTSP",
+        "IPDestino": "rtsp://192.168.0.12:8554/cam",
+        "IPSDP": "0.0.0.0",
+        "protocolo": "tcp",
+        "IPDestinoSRT": "152.170.252.9",
+        "puertoDestinoSRT": "8890",
+        "extraDataSRT": "?streamid=publish:cam&mode=caller&transtype=live&latency=600&peerlatency=300&pkt_size=1316",
+        "mic": "",
+        "hdmi": "Full"
+    }
 
     if not os.path.exists(CONFIG_FILE):
         return default_config
@@ -83,6 +114,35 @@ CONFIG = load_config()
 WIDTH, HEIGHT = 1920, 1080
 picam2 = None
 
+def mic_mute_mixer(enable: bool):
+    try:
+        print("Mixer muteando.")
+        mixer.setrec(0 if enable else 1)
+        return True
+    except Exception as e:
+        print("Error al mutear:", e)
+        return False
+
+def changeRunningCamera(estado):
+    global CAMERA_RUNNING
+    CAMERA_RUNNING = estado
+
+def getRunningCamera():
+    global CAMERA_RUNNING
+    return CAMERA_RUNNING
+
+def changeMute(estado):
+    global MIC_MUTE
+    MIC_MUTE = estado
+    
+    print("Muteando mic.")
+    if CONFIG.get("mic"):
+        mic_mute_mixer(MIC_MUTE)
+        
+def getMute():
+    global MIC_MUTE
+    return MIC_MUTE
+
 # 🔢 Actualizar resolución
 res = CONFIG["resolution"]
 if isinstance(res, str) and "x" in res:
@@ -96,6 +156,11 @@ else:
 
 TARGET_FPS = CONFIG["fps"]
 IPDestino = CONFIG["IPSDP"]
+
+#if not CONFIG.get("mic"):
+#    changeMute(True)
+#else:
+#    mixer = alsaaudio.Mixer(control='Mic', cardindex=0)
 
 def save_config(data):
     global CONFIG, WIDTH, HEIGHT, TARGET_FPS, PREVIEW_WIDTH

@@ -8,6 +8,8 @@ import threading
 
 _last_touch = None
 _touch_running = True
+_touch_active = True
+_button_activated = False
 
 # Variables
 monitorState = True
@@ -23,6 +25,9 @@ def changeMonitorState():
         bl.value = 1.0
     else:
         bl.value = 0.0
+
+##DESACTIVAR LCD TEMPORAL
+changeMonitorState()
 
 def getMonitorState():
     return monitorState
@@ -44,7 +49,7 @@ current_menu = "main"
 itemsMenu = []
 menu_stack = []  # para volver atrás
 last_restart_time = 0
-debounce_delay = 0.5  # segundos
+debounce_delay = 0.1  # segundos
 
 MENUS = {
     "main": ["START", "MUTE", "MONITOR", "CAMERA", "EXIT"],
@@ -62,7 +67,7 @@ def SelecChange(change):
     lcd_preview.selected = (lcd_preview.selected + change) % len(itemsMenu)
     
 def ButtonClick():
-    from camera_config import CONFIG, load_config, save_config
+    from camera_config import CONFIG, load_config, save_config, getMute, changeMute
     from video_stream import restart_video_thread, apply_config_to_active_camera
     from foto_capture import capture_foto, apply_config_to_active_camera_foto
     from video_rec import capture_rec, apply_config_to_active_camera_rec
@@ -82,7 +87,7 @@ def ButtonClick():
             changeMenuState()
             
         if buttonSelected == "MUTE":
-            print("MUTE")
+            changeMute(not getMute())
             changeMenuState()
             
         if buttonSelected == "MONITOR":
@@ -165,7 +170,7 @@ def draw_text_outline(draw, position, text, font, fill="white", outline="black")
     draw.text((x, y), text, font=font, fill=fill)
 
 def procesarTactil():
-    global last_restart_time
+    global last_restart_time, _button_activated
     
     now = time.time()
     if now - last_restart_time < debounce_delay:
@@ -173,7 +178,7 @@ def procesarTactil():
         return
     last_restart_time = now
     
-    if not monitorState:
+    if not monitorState and not _button_activated:
         changeMonitorState()
         print("MONITOR ON")
         return
@@ -185,14 +190,14 @@ def procesarTactil():
         
     x, y = _last_touch
     if not InMenu:
-        if 270 <= x <= 330 and 270 <= y <= 337:
+        if 424 <= x <= 480 and 100 <= y <= 130:
             changeMenuState()
             time.sleep(0.1)
             lcd_preview.selected = 0
             DrawMenu("main")
             print("MENU")
             return
-        if 270 <= x <= 330 and 205 <= y <= 250:
+        if 424 <= x <= 480 and 150 <= y <= 190:
             CONFIG = load_config()
             if CONFIG.get("AwbEnable"):
                 CONFIG["AwbEnable"] = False
@@ -204,7 +209,7 @@ def procesarTactil():
             apply_config_to_active_camera_rec(True)
             print("WB")
             return
-        if 270 <= x <= 330 and 117 <= y <= 170:
+        if 424 <= x <= 480 and 200 <= y <= 240:
             CONFIG = load_config()
             if CONFIG.get("AeEnable"):
                 CONFIG["AeEnable"] = False
@@ -216,46 +221,53 @@ def procesarTactil():
             apply_config_to_active_camera_rec(True)
             print("AE")
             return
-        if 0 <= x <= 60 and 270 <= y <= 337:
+        if 0 <= x <= 100 and 100 <= y <= 130:
             zoom_state['direction'] = +1
             print("ZOOM+")
             return
-        if 0 <= x <= 60 and 205 <= y <= 250:
+        if 0 <= x <= 100 and 150 <= y <= 190:
             zoom_state['direction'] = 0
             zoom_state['factor'] = 1.0
             print("ZOOM=")
             return
-        if 0 <= x <= 60 and 117 <= y <= 170:
+        if 0 <= x <= 100 and 200 <= y <= 240:
             zoom_state['direction'] = -1
             print("ZOOM-")
             return
     else:
-        if itemsMenu:
-            idx = lcd_preview.hit_menu(x, y, itemsMenu)
-            if idx:
-                lcd_preview.selected = len(itemsMenu) - 1 - idx
+        DrawMenu(None)
+        if itemsMenu and not _button_activated:
+            _button_activated = True
+            idx = lcd_preview.hit_menu(x, y)
+            if idx is not None:
+                lcd_preview.selected = idx
                 ButtonClick()
-
+                
 def touch_thread_loop():
-    global _last_touch
+    global _last_touch, _touch_active, _button_activated
 
     while _touch_running:
         p = touch_read_raw()
         if p:
             raw_x, raw_y = p
-
-            x = int((raw_x / 4095) * LCD_WIDTH)
-            y = int((raw_y / 4095) * LCD_HEIGHT)
-
-            # Ajustar rotación según tu MADCTL (0xA8)
-            x = LCD_WIDTH - 1 - x
-
+            x = int((raw_x / 4095) * 480)
+            y = int((raw_y / 4095) * 320)
+            x = 480 + 20 - x
+            y = 320 + 0 - y
             _last_touch = (x, y)
+            _touch_active = True
         else:
             _last_touch = None
+            if _touch_active:
+                from video_stream import zoom_state
+                if zoom_state['direction'] != 0:
+                    zoom_state['direction'] = 0
+                    print("ZOOM STOP")
+            _touch_active = False
+            _button_activated = False
 
         if _last_touch:
-            #print("LCD Tactil:", _last_touch)
+            print("LCD Tactil:", _last_touch)
             procesarTactil()
         time.sleep(0.01)  # 10ms, no carga CPU
 
@@ -270,59 +282,80 @@ class LCDPreview:
         self.orientation = "vertical"
         self.last_time = time.time()
         self.frames = 0
+        self.menu_rects = []
         
-    def draw_menu(self, items, img):
-        draw = ImageDraw.Draw(img, "RGBA")
-        w, h = img.size
+    def draw_menu(self, items, frame):
+        self.menu_rects = []
+        width, height = 480, 320
+        ACCENT = (255, 204, 21) # Amarillo Pro
+        BG_COLOR = (12, 12, 12) # Negro casi puro
+        # Crear lienzo
+        img = Image.new("RGB", (width, height), BG_COLOR)
+        draw = ImageDraw.Draw(img)
+        # --- HEADER ---
+        header_h = int(height * 0.15)
+        draw.rectangle([0, 0, width, header_h], fill=(30, 30, 30))
+        # --- 2. FOOTER (10% de la altura) ---
+        footer_h = int(height * 0.10)
+        footer_y_start = height - footer_h
+        draw.rectangle([0, footer_y_start, width, height], fill=(20, 20, 20))
+        
+        try:
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+            font_title = ImageFont.truetype(font_path, int(header_h * 0.4))
+            font_btn = ImageFont.truetype(font_path, int(height * 0.05))
+            font_footer = ImageFont.truetype(font_path, int(footer_h * 0.4))
+        except:
+            font_title = font_btn = ImageFont.load_default()
 
-        # Fondo translúcido con degradado sutil
-        gradient = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        for y in range(h):
-            alpha = int(180 + 50 * (y / h))  # más oscuro abajo
-            ImageDraw.Draw(gradient).line([(0, y), (w, y)], fill=(0, 0, 0, alpha))
-        img.alpha_composite(gradient)
+        # Título dinámico basado en el menú actual
+        draw.text((30, header_h // 3), f"UNICAM MENU", font=font_title, fill=ACCENT)
 
-        # Layout dinámico
-        spacing = int(h * 0.02)
-        btn_h = int((h - spacing * (len(items) + 1)) / len(items))
-        btn_w = int(w * 0.8)
-        x_center = w // 2
-
-        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", int(btn_h * 0.4))
-        font_shadow = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", int(btn_h * 0.4))
+        # --- GRID CALCULATIONS ---
+        margin = 30
+        gap = 15
+        cols = 2
+        # Calculamos filas necesarias
+        rows = (len(items) + 1) // cols if len(items) > 0 else 1
+        btn_w = (width - (margin * 2) - gap) // cols
+        btn_h = (height - header_h - (margin * 2) - (gap * (rows - 1))) // max(rows, 3)
 
         for i, label in enumerate(items):
-            y0 = spacing + i * (btn_h + spacing)
+            col = i % cols
+            row = i // cols       
+            x0 = margin + col * (btn_w + gap)
+            y0 = header_h + margin + row * (btn_h + gap)
+            x1 = x0 + btn_w
             y1 = y0 + btn_h
-            x0 = x_center - btn_w // 2
-            x1 = x_center + btn_w // 2
-
-            # Colores estilo “Pro UI”
+            rect = (x0, y0, x1, y1)
+            self.menu_rects.append(rect)
+            # Estilo del botón
             if self.selected == i:
-                fill = (15, 15, 15, 220)
-                outline = (250, 204, 21)
-                text_color = (200, 200, 200)
+                # Seleccionado: Fondo gris oscuro, borde amarillo grueso
+                draw.rectangle([x0, y0, x1, y1], fill=(45, 45, 45), outline=ACCENT, width=4)
+                text_color = ACCENT
             else:
-                fill = (15, 15, 15, 220)
-                outline = (70, 70, 70)
-                text_color = (200, 200, 200)
-
-            # Glow sutil alrededor del seleccionado
-            if self.selected == i:
-                glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
-                gdraw = ImageDraw.Draw(glow)
-                gdraw.rounded_rectangle([x0-3, y0-3, x1+3, y1+3], radius=int(btn_h * 0.2), fill=(255, 90, 20, 40))
-                img.alpha_composite(glow)
-
-            # Botón redondeado con borde fino
-            draw.rounded_rectangle([x0, y0, x1, y1], radius=int(btn_h * 0.05), fill=fill, outline=outline, width=2)
-
-            # Texto centrado con sombra
-            tw, th = draw.textbbox((0, 0), label, font=font_title)[2:]
-            tx = x_center - tw // 2
+                # Normal: Fondo negro, borde gris fino
+                draw.rectangle([x0, y0, x1, y1], fill=(25, 25, 25), outline=(60, 60, 60), width=1)
+                text_color = (255, 255, 255)
+            # Centrar texto en el botón
+            tw, th = draw.textbbox((0, 0), label, font=font_btn)[2:]
+            tx = x0 + (btn_w - tw) // 2
             ty = y0 + (btn_h - th) // 2
-            draw.text((tx+1, ty+1), label, font=font_shadow, fill=(0, 0, 0, 180))
-            draw.text((tx, ty), label, font=font_title, fill=text_color)
+            draw.text((tx, ty), label, font=font_btn, fill=text_color)
+
+        # --- 4. FOOTER CORREGIDO ---
+        status_text = "v1.3.0 | BATT 100% | TEMP 44° | DSK 87%"
+        tw_f, th_f = draw.textbbox((0, 0), status_text, font=font_footer)[2:]
+        fx = (width - tw_f) // 2 
+        fy = footer_y_start + (footer_h - th_f) // 2
+        draw.text((fx, fy), status_text, font=font_footer, fill=(150, 150, 150))
+
+        # DEBUG: Dibujar donde ocurrió el último toque
+        #if _last_touch:
+        #    tx, ty = _last_touch
+        #    # Dibujamos un círculo rojo en la posición del toque
+        #    draw.ellipse([tx-5, ty-5, tx+5, ty+5], fill="red", outline="white")
 
         # Correcciones de orientación para tu pantalla
         arr = np.array(img)
@@ -331,19 +364,12 @@ class LCDPreview:
         img_final = Image.fromarray(arr)
         show_frame(img_final)
 
-    def hit_menu(self, x, y, itemsMenu):
-        """Detecta qué botón fue presionado según coordenadas táctiles"""
-        w, h = LCD_WIDTH, LCD_HEIGHT
-        spacing = int(h * 0.02)
-        btn_h = int((h - spacing * (len(itemsMenu) + 1)) / len(itemsMenu))
-        btn_w = int(w * 0.8)
-        x_center = w // 2
-
-        for i, label in enumerate(itemsMenu):
-            y0 = spacing + i * (btn_h + spacing)
-            y1 = y0 + btn_h
-            x0 = x_center - btn_w // 2
-            x1 = x_center + btn_w // 2
+    def hit_menu(self, x, y):
+        if y > 320: 
+            x, y = y, x 
+            x = int((x / 4095) * 480)
+            y = int((y / 4095) * 320)
+        for i, (x0, y0, x1, y1) in enumerate(self.menu_rects):
             if x0 <= x <= x1 and y0 <= y <= y1:
                 return i
         return None
@@ -496,7 +522,7 @@ class LCDPreview:
         w, h = draw.im.size
         font = self.font
 
-        status_text = f"WB: {wb_mode}    EM: {af_mode}    ZM: {zm}x"
+        status_text = f"WB: {wb_mode}    AE: {af_mode}    ZM: {zm}x"
 
         bbox = draw.textbbox((0,0), status_text, font=font)
         text_width = bbox[2] - bbox[0]

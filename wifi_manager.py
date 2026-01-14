@@ -11,56 +11,56 @@ def wifi():
     if request.method == "POST":
         ssid = request.form['ssid']
         password = request.form['password']
-        configurar_wifi(ssid, password)
+        configurar_wifi_nm(ssid, password)
         return "Configuración guardada. Reinicia la Raspberry Pi."
     return render_template_string(HTML_COF)
 
-def configurar_wifi(ssid, password):
-    subprocess.run(["sudo", "systemctl", "stop", "hostapd"])
-        
-    wpa_conf = f"""
-network={{
-    ssid="{ssid}"
-    psk="{password}"
-}}
-"""
-    with open("/etc/wpa_supplicant/wpa_supplicant-wlan0.conf", "w") as f:
-        f.write('ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev\n')
-        f.write('update_config=1\n')
-        f.write('country=AR\n')  # Ajusta tu país
-        f.write(wpa_conf)
-    # Reiniciar el servicio de Wi-Fi
-    subprocess.run(["sudo", "systemctl", "stop", "hostapd"])
-    subprocess.run(["sudo", "systemctl", "stop", "dnsmasq"])
+def configurar_wifi_nm(ssid, password):
+    print("📡 Preparando WiFi (NetworkManager)...")
 
-    subprocess.run(["sudo", "systemctl", "restart", "dhcpcd"])
-    subprocess.run(["sudo", "systemctl", "restart", "wpa_supplicant"])
+    # Asegurar WiFi encendido
+    subprocess.run(["sudo", "nmcli", "radio", "wifi", "on"])
 
-    subprocess.run(["sudo", "wpa_cli", "-i", "wlan0", "reconfigure"])
-    
-    time.sleep(1)
-    
-    subprocess.run(["sudo", "reboot"])
-    
-    #ComprobeWifi()
+    # Por si venía de hotspot o estado raro
+    subprocess.run(["sudo", "nmcli", "device", "disconnect", "wlan0"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-def forzar_conexion_wifi():
-    print("Forzando conexión WiFi...")
+    # Forzar escaneo
+    subprocess.run(
+        ["sudo", "nmcli", "device", "wifi", "rescan", "ifname", "wlan0"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
 
-    # Reinicia los servicios de red
-    subprocess.run(["sudo", "systemctl", "stop", "hostapd"])
-    subprocess.run(["sudo", "systemctl", "stop", "dnsmasq"])
-    subprocess.run(["sudo", "systemctl", "restart", "dhcpcd"])
-    subprocess.run(["sudo", "systemctl", "restart", "wpa_supplicant"])
+    time.sleep(2)  # MUY IMPORTANTE
 
-    # Espera unos segundos para que levante
-    time.sleep(1)
+    print(f"🔗 Conectando a {ssid}...")
 
-    # Fuerza reconfiguración de wpa_supplicant
-    subprocess.run(["sudo", "wpa_cli", "-i", "wlan0", "reconfigure"])
-    subprocess.run(["sudo", "wpa_cli", "-i", "wlan0", "reassociate"])
+    # Conectar
+    result = subprocess.run(
+        [
+            "sudo", "nmcli", "device", "wifi", "connect",
+            ssid,
+            "password", password,
+            "ifname", "wlan0"
+        ],
+        capture_output=True,
+        text=True
+    )
 
-    print("Intentando conectar a la red WiFi...")
+    if result.returncode != 0:
+        print("❌ Error conectando WiFi:")
+        print(result.stderr)
+        return False
+
+    # Autoconectar siempre
+    subprocess.run([
+        "sudo", "nmcli", "connection", "modify",
+        ssid,
+        "connection.autoconnect", "yes"
+    ])
+
+    print("✅ WiFi conectado y guardado")
+    return True
 
 def tiene_internet():
     # Primero prueba con socket TCP a 1.1.1.1:80 (Cloudflare)
@@ -86,18 +86,29 @@ def tiene_internet():
         print("✖ Sin acceso a Internet.")
         return False
 
+def apagar_hotspot():
+    subprocess.run(["sudo", "nmcli", "connection", "down", "Hotspot"], stderr=subprocess.DEVNULL)
+
+def levantar_hotspot():
+    print("Levantando Hotspot...")
+
+    subprocess.run([
+        "sudo", "nmcli", "device", "wifi", "hotspot",
+        "ifname", "wlan0",
+        "ssid", "Unicam",
+        "password", "1234567890"
+    ])
+
+
 def ComprobeWifi():
-    forzar_conexion_wifi()
     print("Esperando a que la red se estabilice...")
     time.sleep(10)
     if not tiene_internet():
-        print("No hay Internet, levantando AP...")
-        subprocess.run(["sudo", "systemctl", "start", "hostapd"])
-        subprocess.run(["sudo", "systemctl", "start", "dnsmasq"])
+        print("❌ Sin Internet → Hotspot ON")
+        levantar_hotspot()
     else:
-        print("Hay Internet, apagando AP...")
-        subprocess.run(["sudo", "systemctl", "stop", "hostapd"])
-        subprocess.run(["sudo", "systemctl", "stop", "dnsmasq"])
+        print("✔ Internet OK → Hotspot OFF")
+        apagar_hotspot()
         
 wifi_thread = threading.Thread(target=ComprobeWifi, daemon=True)
 wifi_thread.start()

@@ -4,15 +4,15 @@ import subprocess
 from flask import request
 from picamera2 import Picamera2
 import cv2
-from camera_config import WIDTH, HEIGHT, TARGET_FPS, IPDestino, aplicar_camara_config, generar_sdp, CONFIG, picam2, load_config, changeRunningCamera
+from camera_config import WIDTH, HEIGHT, TARGET_FPS, IPDestino, aplicar_camara_config, generar_sdp, CONFIG, picam2, load_config, changeRunningCamera, getMute, get_audio_level
 from threading import Thread
 from lcd_preview import LCDPreview, monitorState, PrintImageDisplay, InMenu, lcd_preview, getInMenuState, getMonitorState
-from queue import Queue
+from queue import Queue, Empty
 from PIL import Image, ImageOps
-from queue import Empty
 import time
 import numpy as np
 from datetime import datetime
+import os
 
 video_thread = None
 preview_thread = None
@@ -58,35 +58,56 @@ def video_stream_thread():
     cmd = [
         'ffmpeg',
         '-y',
+
+        # VIDEO INPUT
         '-f', 'rawvideo',
         '-vcodec', 'rawvideo',
         '-pix_fmt', 'yuv420p',
         '-s', f'{WIDTH}x{HEIGHT}',
         '-r', str(TARGET_FPS),
-        '-i', '-',
+        '-i', '-',   # video stdin
+
+        # VIDEO ENCODE
         '-g', '60',
         '-c:v', 'libx264',
-        '-preset', CONFIG.get("preset"), #superfast
-        "-b:v", CONFIG.get("bitrate"), #12
-        "-maxrate", CONFIG.get("bitrate"), #12
-        "-bufsize", CONFIG.get("bitrate"), #12
+        '-preset', CONFIG.get("preset"),
+        '-b:v', CONFIG.get("bitrate"),
+        '-maxrate', CONFIG.get("bitrate"),
+        '-bufsize', CONFIG.get("bitrate"),
         '-tune', 'zerolatency',
         '-x264opts', 'keyint=30:scenecut=0:repeat-headers=1',
+
+        # OUTPUT
         '-f', 'rtsp',
         '-rtsp_transport', CONFIG.get("protocolo"),
-        #"-loglevel", "debug",
         f'{CONFIG.get("IPDestino")}'
     ]
+    
+    if CONFIG.get("mic"):
+        cmd.extend([
+            '-f', 'alsa',
+            '-ac', '1',
+            '-ar', '48000',
+            '-i', CONFIG.get("mic"),
+            '-c:a', 'aac',
+            '-b:a', '128k'
+        ])
+    else:
+        print("No se detecto micrifono: transmision solo de video.")
     
     cmd_srt = [
         'ffmpeg',
         '-y',
+
+        # VIDEO INPUT
         '-f', 'rawvideo',
         '-vcodec', 'rawvideo',
         '-pix_fmt', 'yuv420p',
         '-s', f'{WIDTH}x{HEIGHT}',
         '-r', str(TARGET_FPS),
-        '-i', '-',
+        '-i', '-',   # video stdin
+
+        # VIDEO ENCODE
         '-g', '60',
         '-c:v', 'libx264',
         '-preset', CONFIG.get("preset"),
@@ -95,9 +116,23 @@ def video_stream_thread():
         "-bufsize", CONFIG.get("bitrate"),
         '-tune', 'zerolatency',
         '-x264opts', 'keyint=30:scenecut=0:repeat-headers=1',
+
+        # OUTPUT
         '-f', 'mpegts',
         f'srt://{CONFIG.get("IPDestinoSRT")}:{CONFIG.get("puertoDestinoSRT")}{CONFIG.get("extraDataSRT")}'
     ]
+    
+    if CONFIG.get("mic"):
+        cmd_srt.extend([
+            '-f', 'alsa',
+            '-ac', '1',
+            '-i', CONFIG.get("mic"),
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-thread_queue_size', '1024'
+        ])
+    else:
+        print("No se detecto micrifono: transmision solo de video.")
     
     proc = None
     
@@ -113,6 +148,36 @@ def video_stream_thread():
     start_blink()
     changeRunningCamera(True)
     
+    os.environ["SDL_VIDEO_ALLOW_SCREENSAVER"] = "1"
+    os.environ["SDL_MOUSE_RELATIVE"] = "1"
+    os.environ["SDL_NOMOUSE"] = "1"
+    subprocess.Popen(['unclutter', '-idle', '0'])
+    hdmiState = True
+    opcion_hdmi = CONFIG.get("hdmi")
+    proc_hdmi = None
+    if opcion_hdmi == "Off":
+        hdmiState = False
+    res_hdmi = f"{WIDTH}x{HEIGHT}"
+    if opcion_hdmi == "Mid":
+        res_hdmi = "1280x720"
+    elif opcion_hdmi == "Low": # El tercero
+        res_hdmi = "640x360"
+    cmd_hdmi = [
+        'ffmpeg',
+        '-f', 'rawvideo',
+        '-pixel_format', 'yuv420p',
+        '-video_size', f'{WIDTH}x{HEIGHT}',
+        '-i', '-', 
+        '-vf', f'scale={res_hdmi}:flags=neighbor', 
+        '-f', 'sdl',
+        '-window_fullscreen', '1',
+        '-vsync', '0', 
+        'SDL_Display'
+    ]
+    if hdmiState:
+        with open("hdmi_log.txt", "wb") as f:
+            proc_hdmi = subprocess.Popen(cmd_hdmi, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
+
     try:
         while video_thread_running.is_set() and not stop_error:
             try:
@@ -120,16 +185,18 @@ def video_stream_thread():
                 current_zoom = zoom_state['factor']
                 frame = zoom_yuv420(frame, WIDTH, HEIGHT, current_zoom)
                 proc.stdin.write(memoryview(frame))
+                if hdmiState:
+                    proc_hdmi.stdin.write(memoryview(frame))
                 latest_frame = memoryview(frame)
             except Exception as e:
                 stop_error = True
-                print("❌ Error en stream video:", e)
+                print("Error en stream video:", e)
                 PrintImageDisplay("img/error_stream.png")
                 stop_blink()
                 changeRunningCamera(False)
     except Exception as e:
         stop_error = True
-        print("❌ Error en hilo video:", e)
+        print("Error en hilo video:", e)
         PrintImageDisplay("img/error_stream.png")
         stop_blink()
         changeRunningCamera(False)
@@ -137,6 +204,9 @@ def video_stream_thread():
         video_thread_running.clear()
         proc.stdin.close()
         proc.wait()
+        if hdmiState:
+            proc_hdmi.stdin.close()
+            proc_hdmi.wait()
         picam2.close()
         cv2.destroyAllWindows()
         print("🔴 Hilo de video stream parado.")
@@ -151,7 +221,7 @@ def restart_video_thread():
     
     now = time.time()
     if now - last_restart_time < debounce_delay:
-        print("⏳ Ignorado: debounce activo.")
+        print("Ignorado: debounce activo.")
         return
     last_restart_time = now
 
@@ -176,6 +246,8 @@ def lcd_preview_thread():
     UPDATE_DELAY = 2   # actualizar cada 2 segundos
     ae_mode = "AUTO"
     wb_mode = "AUTO"
+    Alevel = 100
+    mute = True
     
     try:
         while video_thread_running.is_set():
@@ -208,11 +280,16 @@ def lcd_preview_thread():
                 if not CONFIG.get("AwbEnable"):
                     wb_mode = "MANUAL"
                     
+                if getMute():
+                    Alevel = 100
+                    mute = True
+                else:
+                    Alevel = 44#get_audio_level()
+                    mute = False
+                    
             elapsed_seconds = (datetime.now() - start_time).seconds
             zm = round(zoom_state['factor'], 2)
-            Alevel = 100
-            mute = True
-                
+            
             lcd_preview.show(latest_frame, width=WIDTH, height=HEIGHT, fps=TARGET_FPS, elapsed_seconds=elapsed_seconds, af_mode=ae_mode, wb_mode=wb_mode, zm=zm, recording=False, stream_active=True, mode="STR", Alevel=Alevel, mute=mute, bitrate=CONFIG.get("bitrate"))
             
             time.sleep(0.01)
@@ -261,7 +338,6 @@ def rtp_to_rtsp_thread():
     try:
         while rtsp_thread_running.is_set():
             if proc.poll() is not None:  # FFmpeg terminó
-                print("❌ ❌ ❌ ❌ ❌ ❌ ❌ ❌ ❌ ❌")
                 print("FFmpeg RTSP murió. Revisa ffmpeg_log.txt para detalles.")
                 rtsp_thread_running.clear()
                 video_thread_running.clear()

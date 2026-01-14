@@ -1,10 +1,8 @@
-import cv2
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import time
 import spidev
-from gpiozero import DigitalOutputDevice, PWMOutputDevice
-import RPi.GPIO as GPIO
+from gpiozero import DigitalOutputDevice, PWMOutputDevice, Button
 
 # --- Pines ---
 DC_PIN  = 24
@@ -35,18 +33,17 @@ spi_touch.open(0, 1)     # SPI0 CE1
 spi_touch.max_speed_hz = 2000000
 spi_touch.mode = 0b00
 
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(T_IRQ, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+touch_irq = Button(T_IRQ, pull_up=True)
+
+last_touch = 0
 
 def touch_read_raw():
-    # Si no está tocando, no leo
-    if GPIO.input(T_IRQ) == 1:
+    if not touch_irq.is_pressed:
         return None
 
     # Leer X
     x = spi_touch.xfer2([0x90, 0x00, 0x00])
     raw_x = ((x[1] << 8) | x[2]) >> 3
-
     # Leer Y
     y = spi_touch.xfer2([0xD0, 0x00, 0x00])
     raw_y = ((y[1] << 8) | y[2]) >> 3

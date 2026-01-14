@@ -279,10 +279,14 @@ footer {
 	  <div class="status-text">CPU FREQ: <span id="cpu_freqText">0</span></div>
       <div class="status-text">RAM: <span id="ramText">0%</span></div>
       <div class="status-bar"><div id="ramBar" class="status-fill"></div></div>
-      <div class="status-text">Temperatura: <span id="tempText">0°C</span></div>
+      <div class="status-text">Temp: <span id="tempText">0°C</span></div>
       <div class="status-bar"><div id="tempBar" class="status-fill"></div></div>
-      <div class="status-text">Disco: <span id="diskText">0%</span></div>
+      <div class="status-text">Disk: <span id="diskText">0%</span></div>
       <div class="status-bar"><div id="diskBar" class="status-fill"></div></div>
+	  <div class="status-text">BAT: <span id="batText">0%</span></div>
+	  <div class="status-bar"><div id="batBar" class="status-fill"></div></div>
+	  <div class="status-text">Vol: <span id="volText">0.0</span></div>
+	  <div class="status-text">Load: <span id="loadText">0.0</span></div>
     </div>
 	
 	<div class="chart-box">
@@ -293,15 +297,16 @@ footer {
 	<!-- Utilidades -->
     <div class="card">
       <h2>Funciones</h2>
-      <button class="btn" onclick="restartPi()">Restart</button>
-	  <h2> </h2>
-      <button class="btn" onclick="shutdownPi()">Shutdown</button>
+	  <button class="btn" onclick="restartStream()">START</button>
+	  <button class="btn" id="zoomIn">ZOOM +</button>
+	  <button class="btn" id="zoomOut">ZOOM -</button>
 	  <h2> </h2>
       <button class="btn" onclick="window.location.href='/files'">Files</button>
 	  <button class="btn" onclick="window.location.href='/browse/home/pi/Unicam/fotos'">Pictures</button>
 	  <button class="btn" onclick="window.location.href='/browse/home/pi/Unicam/videos'">Videos</button>
 	  <h2> </h2>
-	  <button class="btn" onclick="restartStream()">START</button>
+	  <button class="btn" onclick="restartPi()">Restart</button>
+      <button class="btn" onclick="shutdownPi()">Shutdown</button>
     </div>
 
   
@@ -329,6 +334,15 @@ footer {
             <option>1920x1080</option>
             <option>1280x720</option>
             <option>640x480</option>
+        </select>
+    </label>
+	<br>
+    <label>HDMI:
+        <select id="hdmi">
+            <option>Full</option>
+            <option>Mid</option>
+            <option>Low</option>
+            <option>Off</option>
         </select>
     </label>
 	<br>
@@ -414,6 +428,11 @@ footer {
 	<div class="setting">
 		<label>Extra SRT:</label>
 		<input type="text" id="extraDataSRT" placeholder="?streamid=publish:cam&pkt_size=1316&latency=0">
+	</div>
+	<br><br>
+	<div class="setting">
+		<label>Mic:</label>
+		<input type="text" id="mic" placeholder="">
 	</div>
 	<br><br>
 	<button id="settings-btn-1">Send</button>
@@ -724,6 +743,11 @@ sliders2.forEach(slider => {
 	  document.getElementById('diskText').textContent = data.disk+'%';
 	  document.getElementById('diskBar').style.width = data.disk+'%';
 	  document.getElementById('cpu_freqText').textContent = data.cpu_freq;
+      document.getElementById('batText').textContent = data.ups.battery_percent+'%';
+	  document.getElementById('batBar').style.width = data.ups.battery_percent+'%';
+	  document.getElementById('volText').textContent = data.ups.voltage_v;
+	  document.getElementById('loadText').textContent = data.ups.current_a;
+	  
 	  updateCpuLed(data.cpu);
 	  temp = data.temp
 	  cpu = data.cpu
@@ -913,7 +937,8 @@ const selects = [
   "modo",
   "bitrate",
   "preset",
-  "protocolo_stream"
+  "protocolo_stream",
+  "hdmi"
 ];
 	
 	// ================================
@@ -955,6 +980,7 @@ const selects = [
 		  document.getElementById("IPDestinoSRT").value = config["IPDestinoSRT"];
 		  document.getElementById("puertoDestinoSRT").value = config["puertoDestinoSRT"];
 		  document.getElementById("extraDataSRT").value = config["extraDataSRT"];
+		  document.getElementById("mic").value = config["mic"];
 		  actualizarSlidersAuto();
 		});
 	}
@@ -1004,6 +1030,7 @@ const selects = [
 		config["IPDestinoSRT"] = document.getElementById("IPDestinoSRT").value;
 		config["puertoDestinoSRT"] = document.getElementById("puertoDestinoSRT").value;
 		config["extraDataSRT"] = document.getElementById("extraDataSRT").value;
+		config["mic"] = document.getElementById("mic").value;
 		
 		// enviar al backend
 		fetch('/api/camera-config', {
@@ -1046,6 +1073,34 @@ const selects = [
 	document.getElementById("settings-btn-1").addEventListener("click", saveConfig);
 	document.getElementById("settings-btn-2").addEventListener("click", saveConfig);
 	document.getElementById("settings-btn-3").addEventListener("click", forceReloadConfig);
+	
+	function enviarZoom(direccion) {
+            const formData = new FormData();
+            formData.append('direction', direccion);
+
+            fetch("/zoom", {
+                method: 'POST',
+                body: formData
+            }).catch(err => console.error("Error:", err));
+        }
+
+        function configurarBoton(id, dir) {
+            const btn = document.getElementById(id);
+            
+            // Cuando presionas: Envia 'in' o 'out'
+            btn.addEventListener('mousedown', () => enviarZoom(dir));
+            
+            // Cuando sueltas (o sales del botón): Envia 'stop'
+            btn.addEventListener('mouseup', () => enviarZoom('stop'));
+            btn.addEventListener('mouseleave', () => enviarZoom('stop'));
+
+            // Soporte para pantallas táctiles
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); enviarZoom(dir); });
+            btn.addEventListener('touchend', () => enviarZoom('stop'));
+        }
+
+        configurarBoton('zoomIn', 'in');
+        configurarBoton('zoomOut', 'out');
 	</script>
 </div>
 </body>

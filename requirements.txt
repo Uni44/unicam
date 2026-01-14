@@ -1,12 +1,11 @@
 flask
 flask-socketio
-picamera2
-opencv-python
 numpy
 pillow
-gpiozero
-lgpio
-RPi.GPIO
-spidev
 psutil
+gpiozero
+picamera2
 yappi
+opencv-python
+sounddevice
+pyalsaaudio

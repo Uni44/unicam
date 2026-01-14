@@ -11,20 +11,17 @@ import os
 import yappi
 import logging
 from camera_config import (
-    load_config, save_config, aplicar_camara_config, get_camera_config, update_camera_config, CONFIG, getRunningCamera
+    save_config, get_camera_config, update_camera_config, CONFIG, getRunningCamera
 )
 from video_stream import (
     video_stream_thread, restart_video_thread, zoom_yuv420, zoom_loop, zoom, rtp_to_rtsp_thread, apply_config_to_active_camera
 )
-from gpio_control import (
-    start_blink, blink_led, on_press, on_release
-)
-from wifi_manager import (
-    wifi, configurar_wifi, ComprobeWifi, tiene_internet
-)
+from gpio_control import start_blink, blink_led, on_press, on_release
+from wifi_manager import wifi
 from foto_capture import restart_foto_thread, apply_config_to_active_camera_foto, capture_foto
 from video_rec import restart_rec_thread, apply_config_to_active_camera_rec, capture_rec
 import gpio_control
+from ups_driver import INA219
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode="threading")
@@ -38,15 +35,21 @@ logging.basicConfig(
 
 start_time = time.time()
 
+try:
+    sensor_ups = INA219(addr=0x41) 
+except Exception as e:
+    logging.error(f"Error inicializando INA219: {e}")
+    sensor_ups = None
+    
 @app.route('/files')
 def files():
     return "<h2>Explorador del sistema</h2><a href='/browse/'>Abrir navegador de archivos</a>"
 
-# 🔍 Ruta para explorar carpetas
+# Ruta para explorar carpetas
 @app.route('/browse/', defaults={'path': ''})
 @app.route('/browse/<path:path>')
 def browse(path):
-    base_path = "/"  # raíz del sistema
+    base_path = "/"  # raiz del sistema
     abs_path = os.path.join(base_path, path)
 
     if not os.path.exists(abs_path):
@@ -67,18 +70,18 @@ def browse(path):
         return f"<h3>Sin permisos para acceder a: {abs_path}</h3>"
 
     html = f"<h2>Directorio: /{path}</h2><ul>"
-    # Botón para volver atrás
+    # Boton para volver atras
     if path:
         parent = os.path.dirname(path)
-        html += f'<li><a href="/browse/{parent}">🔙 Volver</a></li>'
+        html += f'<li><a href="/browse/{parent}">- Volver</a></li>'
 
     for item in items:
         item_path = os.path.join(path, item)
         full_path = os.path.join(abs_path, item)
         if os.path.isdir(full_path):
-            html += f'<li>📁 <a href="/browse/{item_path}">{item}</a></li>'
+            html += f'<li>- <a href="/browse/{item_path}">{item}</a></li>'
         else:
-            html += f'<li>📄 <a href="/browse/{item_path}">{item}</a></li>'
+            html += f'<li>- <a href="/browse/{item_path}">{item}</a></li>'
     html += "</ul>"
     return html
 
@@ -123,34 +126,40 @@ def status():
         temp = 0
     disk = int(psutil.disk_usage('/').percent)
     running = getRunningCamera()
-    
+    ups_data = {"status": "offline"}
+    if sensor_ups:
+        ups_data = sensor_ups.get_stats()
     log_message = (
         f"CPU={cpu}%, RAM={ram}%, Temp={temp}°C, "
         f"Disk={disk}%, Freq={cpu_freq}MHz, Camera={'ON' if running else 'OFF'}"
+        f"Bat={ups_data.get('battery_percent', 0)}%, V={ups_data.get('voltage_v', 0)}V"
     )
     logging.info(log_message)
 
-    return jsonify(cpu=cpu, ram=ram, temp=temp, disk=disk, cpu_freq=cpu_freq, running=running)
+    return jsonify(cpu=cpu, ram=ram, temp=temp, disk=disk, cpu_freq=cpu_freq, running=running, ups=ups_data)
 
 def log_system_status():
     cpu = int(psutil.cpu_percent())
     ram = int(psutil.virtual_memory().percent)
     temp = 0
-    cpu_freq = gpio_control.get_cpu_freq() # Asumo que esta función existe
+    cpu_freq = gpio_control.get_cpu_freq() # Asumo que esta funcion existe
     try:
         temp = int(open("/sys/class/thermal/thermal_zone0/temp").read()) // 1000
     except:
         temp = 0
     disk = int(psutil.disk_usage('/').percent)
-    running = getRunningCamera() # Asumo que esta función existe
-    
+    running = getRunningCamera() # Asumo que esta funcion existe
+    ups_data = {"status": "offline"}
+    if sensor_ups:
+        ups_data = sensor_ups.get_stats()
     log_message = (
         f"CPU={cpu}%, RAM={ram}%, Temp={temp}°C, "
         f"Disk={disk}%, Freq={cpu_freq}MHz, Camera={'ON' if running else 'OFF'}"
+        f"Bat={ups_data.get('battery_percent', 0)}%, V={ups_data.get('voltage_v', 0)}V"
     )
     logging.info(log_message)
 
-# Función para ejecutar el registro cada 60 segundos
+# Funcion para ejecutar el registro cada 60 segundos
 def background_logging_task():
     while True:
         log_system_status()
@@ -200,7 +209,7 @@ if __name__ == '__main__':
         pass
     finally:
         #yappi.stop()
-        #print("\n=== Stats por función ===")
+        #print("\n=== Stats por funcion ===")
         #yappi.get_func_stats().print_all()
         #print("\n=== Stats por thread ===")
         #yappi.get_thread_stats().print_all()

@@ -42,7 +42,7 @@ def video_stream_thread():
     WIDTH2, HEIGHT2 = 4608, 2592
 
     picam2 = Picamera2()
-    config = picam2.create_still_configuration(
+    config = picam2.create_video_configuration(
         main={"format": "YUV420", "size": (WIDTH2, HEIGHT2)},
         buffer_count=2
     )
@@ -55,11 +55,43 @@ def video_stream_thread():
     start_time = time.time()
     frame_count = 0
     stop_error = False
+    
+    os.environ["SDL_VIDEO_ALLOW_SCREENSAVER"] = "1"
+    os.environ["SDL_MOUSE_RELATIVE"] = "1"
+    os.environ["SDL_NOMOUSE"] = "1"
+    subprocess.Popen(['unclutter', '-idle', '0'])
+    hdmiState = True
+    opcion_hdmi = CONFIG.get("hdmi")
+    proc_hdmi = None
+    if opcion_hdmi == "Off":
+        hdmiState = False
+    res_hdmi = f"{WIDTH}x{HEIGHT}"
+    if opcion_hdmi == "Mid":
+        res_hdmi = "1280x720"
+    elif opcion_hdmi == "Low": # El tercero
+        res_hdmi = "640x360"
+    cmd_hdmi = [
+        'ffmpeg',
+        '-f', 'rawvideo',
+        '-pixel_format', 'yuv420p',
+        '-video_size', f'{WIDTH}x{HEIGHT}',
+        '-i', '-', 
+        '-vf', f'scale={res_hdmi}:flags=neighbor', 
+        '-f', 'sdl',
+        '-window_fullscreen', '1',
+        '-vsync', '0', 
+        'SDL_Display'
+    ]
+    if hdmiState:
+        with open("hdmi_log.txt", "wb") as f:
+            proc_hdmi = subprocess.Popen(cmd_hdmi, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
+    
     try:
         while video_thread_running.is_set() and not stop_error:
             try:
                 frame = picam2.capture_array("main")
                 if fotoTake:
+                    print("fototate")
                     start_blink()
                     for i in range(10):  # cantidad de fotos
                         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -70,7 +102,8 @@ def video_stream_thread():
                         time.sleep(0.2)
                     stop_blink()
                     fotoTake = False
-                # --- MOSTRAR EN MONITOR ---
+                if hdmiState:
+                    proc_hdmi.stdin.write(memoryview(frame))
                 latest_frame = memoryview(frame)
             except Exception as e:
                 stop_error = True
@@ -126,7 +159,6 @@ def capture_foto():
         print("⏳ Ignorado: debounce activo.")
         return
     last_restart_time = now
-    
     fotoTake = True
 
 def apply_config_to_active_camera_foto(todo=False):

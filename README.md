@@ -1,35 +1,38 @@
-# 🎥 Unicam — V1.1.1
+# 🎥 Unicam — V2.0.0
 
 **Unicam** es un sistema de cámara digital completo escrito en **Python**, diseñado específicamente para **Raspberry Pi 5** y módulos de cámara compatibles.
 El proyecto permite capturar fotos, grabar video y transmitir en vivo mediante RTSP/SRT, combinando hardware económico con un workflow profesional.
 
 ---
 
-## 🎥 Unicam Pro V1
+## 🎥 Unicam Pro V2
 
-![foto1](img/foto1.jpg)
-![foto2](img/foto2.jpg)
-![foto3](img/foto3.png)
+![foto1](img/foto4.jpg)
+![foto2](img/foto5.jpg)
+![foto3](img/foto6.png)
 
 ## ✨ Características principales
 
 ### 🔵 Modos de funcionamiento
 - **📷 Foto:**  
   - Captura **10 fotos** consecutivas a la **máxima resolución disponible** del sensor.  
-  - Soporte para **HDR** cuando el sensor lo permita.  
-  - Reducción de ruido integrada.  
+  - Soporte para **HDR** cuando el sensor lo permita.
+  - Soporte para **reducción de ruido** cuando el sensor lo permita.
   - Guardado en formato **YUV420 → JPG**.
 
 - **🎬 Grabación:**  
   - Grabación fluida en **2K 30fps** sin pérdida.  
-  - Procesamiento con **reducción de ruido**.  
+  - Soporte para **HDR** cuando el sensor lo permita.
+  - Soporte para **reducción de ruido** cuando el sensor lo permita.
   - Pipeline optimizado para la Pi 5.
   - Guardado en formato **YUV420 → MP4**.
+  - Soporte para **microfonos**.
 
 - **📡 Streaming:**  
   - Transmisión de video a servidores remotos mediante **RTSP** o **SRT**.  
-  - Alta Calidad optimizada para baja latencia.  
-  - Pensado para streaming o conexión inalámbrica local.
+  - Alta Calidad optimizada para baja latencia.
+  - Pensado para streaming, conexión inalámbrica **local** incluso **4G** o **5G**.
+  - Soporte para **microfonos**.
 
 ---
 
@@ -37,10 +40,10 @@ El proyecto permite capturar fotos, grabar video y transmitir en vivo mediante R
 Incluye un servidor web integrado que permite:
 
 - Monitorear el sensor en tiempo real.
-- Cambiar configuraciones del sensor (AF, exposición, WB, ISO, resolución, etc.).
+- Cambiar configuraciones del sensor.
 - Ajustar calidad y parámetros del stream.
 - Configurar WiFi.
-- Crear un **hotspot WiFi automáticamente** si no se detecta internet.
+- Crea un **hotspot WiFi automáticamente** si no se detecta internet.
 - Ver estado del sistema, CPU, temperatura y modos activos. 
 
 Perfecto para controlar la cámara desde un teléfono o una laptop sin cables.
