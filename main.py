@@ -103,6 +103,7 @@ def force_full_reload():
         apply_config_to_active_camera(True)
         apply_config_to_active_camera_foto(True)
         apply_config_to_active_camera_rec(True)
+        return {"status": "bien"}
     except Exception as e:
         return {"status": "error", "msg": str(e)}
 

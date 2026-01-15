@@ -41,6 +41,13 @@ def video_stream_thread():
     from gpio_control import start_blink, stop_blink
 
     CONFIG = load_config()
+    mic_path = CONFIG.get("mic")
+    is_mic_enabled = mic_path and not mic_path.startswith('!')
+    if is_mic_enabled:
+        print(f"Micrófono detectado y activo: {mic_path}")
+    else:
+        CONFIG["mic"] = ""
+        print("Micrófono desactivado o comentado con '!'. Solo de video.")
     WIDTH, HEIGHT = map(int, CONFIG["resolution"].lower().split("x"))
     TARGET_FPS = CONFIG["fps"]
 
@@ -96,42 +103,59 @@ def video_stream_thread():
             if recTake and not recording:
                 print("🎬 Iniciando grabación...")
                 output_name = os.path.join(carpeta, time.strftime("record_%Y%m%d_%H%M%S.mp4"))
+                # Reordenado y optimizado
                 cmd = [
-                    "ffmpeg",
-                    "-y",
+                    "ffmpeg", "-y",
+                    "-thread_queue_size", "1024",
                     "-f", "rawvideo",
                     "-pix_fmt", "yuv420p",
                     "-s", f"{WIDTH}x{HEIGHT}",
-                    '-r', str(TARGET_FPS),
-                    "-i", "-",
-                    "-c:v", "libx264",
-                    "-preset", CONFIG.get("preset"),
-                    "-crf", "20",
-                    #"-fps_mode", "passthrough",
-                    output_name
+                    "-r", str(TARGET_FPS),
+                    "-i", "-",  # Entrada de video
                 ]
-                
+
                 if CONFIG.get("mic"):
                     cmd.extend([
-                        '-f', 'alsa',
-                        '-ac', '1',
-                        '-i', CONFIG.get("mic"),
-                        '-c:a', 'aac',
-                        '-b:a', '128k',
-                        '-thread_queue_size', '1024'
+                        "-thread_queue_size", "4096",
+                        "-f", "alsa",
+                        "-ac", "2", # Tu log dice que el mic es stereo
+                        "-i", CONFIG.get("mic"), # Entrada de audio
                     ])
-                else:
-                    print("No se detecto micrifono: transmision solo de video.")
-                
+
+                # Salida y Códecs
+                cmd.extend([
+                    "-c:v", "libx264",
+                    "-preset", CONFIG.get("preset"), # CAMBIO CRÍTICO para no perder FPS
+                    "-crf", "20",           # Un poco más de compresión para ayudar
+                    "-tune", "zerolatency", # Ideal para capturas en tiempo real
+                ])
+
+                if CONFIG.get("mic"):
+                    cmd.extend([
+                        "-c:a", "aac",
+                        "-b:a", "128k",
+                        "-map", "0:v", "-map", "1:a"
+                    ])
+                cmd.append(output_name)
                 with open("rec_log.txt", "wb") as f:
                     ffmpeg_proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
                 recording = True
                 start_blink()
             elif not recTake and recording:
                 print("🛑 Deteniendo grabación...")
-                ffmpeg_proc.stdin.close()
-                ffmpeg_proc.wait(timeout=3)
-                ffmpeg_proc = None
+                if ffmpeg_proc and ffmpeg_proc.stdin:
+                    try:
+                        ffmpeg_proc.stdin.close()
+                    except:
+                        pass
+                for p in [ffmpeg_proc]:
+                    if p:
+                        try:
+                            p.terminate()
+                            p.wait(timeout=2) 
+                        except subprocess.TimeoutExpired:
+                            p.kill()
+                ffmpeg_proc = None            
                 recording = False
                 stop_blink()
             if recording and ffmpeg_proc:

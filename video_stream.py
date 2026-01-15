@@ -42,6 +42,13 @@ def video_stream_thread():
     global picam2, zoom_state, latest_frame, frame_lock, CONFIG, WIDTH, HEIGHT, TARGET_FPS
     
     CONFIG = load_config()
+    mic_path = CONFIG.get("mic")
+    is_mic_enabled = mic_path and not mic_path.startswith('!')
+    if is_mic_enabled:
+        print(f"Micrófono detectado y activo: {mic_path}")
+    else:
+        CONFIG["mic"] = ""
+        print("Micrófono desactivado o comentado con '!'. Solo de video.")
     WIDTH, HEIGHT = map(int, CONFIG["resolution"].lower().split("x"))
     TARGET_FPS = CONFIG["fps"]
 
@@ -60,6 +67,8 @@ def video_stream_thread():
         '-y',
 
         # VIDEO INPUT
+        '-use_wallclock_as_timestamps', '1',
+        '-thread_queue_size', '4096',
         '-f', 'rawvideo',
         '-vcodec', 'rawvideo',
         '-pix_fmt', 'yuv420p',
@@ -85,54 +94,64 @@ def video_stream_thread():
     
     if CONFIG.get("mic"):
         cmd.extend([
+            '-thread_queue_size', '4096', # Aumentamos el buffer de entrada
             '-f', 'alsa',
+            '-ar', '44100',            # Forzamos 44.1kHz (estándar estable)
             '-ac', '1',
-            '-ar', '48000',
             '-i', CONFIG.get("mic"),
             '-c:a', 'aac',
-            '-b:a', '128k'
+            '-b:a', '96k',             # Bajamos un poco el bitrate para liberar CPU
+            '-af', 'aresample=async=1:min_hard_comp=0.100000:first_pts=0' # Sincronización agresiva
         ])
     else:
         print("No se detecto micrifono: transmision solo de video.")
     
-    cmd_srt = [
-        'ffmpeg',
-        '-y',
+    # 1. Base del comando y Flags Globales
+    cmd_srt = ['ffmpeg', '-y']
 
-        # VIDEO INPUT
+    # 2. INPUT VIDEO (stdin)
+    cmd_srt.extend([
+        '-use_wallclock_as_timestamps', '1',
+        '-thread_queue_size', '4096',
         '-f', 'rawvideo',
-        '-vcodec', 'rawvideo',
         '-pix_fmt', 'yuv420p',
         '-s', f'{WIDTH}x{HEIGHT}',
         '-r', str(TARGET_FPS),
-        '-i', '-',   # video stdin
+        '-i', '-'
+    ])
 
-        # VIDEO ENCODE
-        '-g', '60',
-        '-c:v', 'libx264',
-        '-preset', CONFIG.get("preset"),
-        "-b:v", CONFIG.get("bitrate"),
-        "-maxrate", CONFIG.get("bitrate"),
-        "-bufsize", CONFIG.get("bitrate"),
-        '-tune', 'zerolatency',
-        '-x264opts', 'keyint=30:scenecut=0:repeat-headers=1',
-
-        # OUTPUT
-        '-f', 'mpegts',
-        f'srt://{CONFIG.get("IPDestinoSRT")}:{CONFIG.get("puertoDestinoSRT")}{CONFIG.get("extraDataSRT")}'
-    ]
-    
+    # 3. INPUT AUDIO (Si existe)
     if CONFIG.get("mic"):
         cmd_srt.extend([
+            '-thread_queue_size', '4096',
             '-f', 'alsa',
-            '-ac', '1',
-            '-i', CONFIG.get("mic"),
+            '-ac', '2',
+            '-i', CONFIG.get("mic")
+        ])
+
+    # 4. CONFIGURACIÓN DE SALIDA (Encoding y Protocolo)
+    cmd_srt.extend([
+        # Video Encode
+        '-c:v', 'libx264',
+        '-preset', CONFIG.get("preset"),
+        '-b:v', CONFIG.get("bitrate"),
+        '-maxrate', CONFIG.get("bitrate"),
+        '-bufsize', CONFIG.get("bitrate"),
+        '-tune', 'zerolatency',
+        '-g', '60',
+        '-x264opts', 'keyint=30:scenecut=0:repeat-headers=1',
+    ])
+
+    if CONFIG.get("mic"):
+        cmd_srt.extend([
             '-c:a', 'aac',
             '-b:a', '128k',
-            '-thread_queue_size', '1024'
+            "-map", "0:v", "-map", "1:a"
         ])
-    else:
-        print("No se detecto micrifono: transmision solo de video.")
+
+    # 5. DESTINO FINAL
+    srt_url = f'srt://{CONFIG.get("IPDestinoSRT")}:{CONFIG.get("puertoDestinoSRT")}{CONFIG.get("extraDataSRT")}'
+    cmd_srt.extend(['-f', 'mpegts', srt_url])
     
     proc = None
     
@@ -202,11 +221,18 @@ def video_stream_thread():
         changeRunningCamera(False)
     finally:
         video_thread_running.clear()
-        proc.stdin.close()
-        proc.wait()
-        if hdmiState:
-            proc_hdmi.stdin.close()
-            proc_hdmi.wait()
+        if proc and proc.stdin:
+            try:
+                proc.stdin.close()
+            except:
+                pass
+        for p in [proc, proc_hdmi]:
+            if p:
+                try:
+                    p.terminate()
+                    p.wait(timeout=2) 
+                except subprocess.TimeoutExpired:
+                    p.kill()
         picam2.close()
         cv2.destroyAllWindows()
         print("🔴 Hilo de video stream parado.")

@@ -99,14 +99,10 @@ def load_config():
 
     if not os.path.exists(CONFIG_FILE):
         return default_config
-
     with open(CONFIG_FILE, "r") as f:
         data = json.load(f)
-
-    # Agregar claves nuevas si el archivo existe pero está incompleto
     for key, val in default_config.items():
         data.setdefault(key, val)
-
     return data
 
 CONFIG = load_config()
@@ -156,11 +152,6 @@ else:
 
 TARGET_FPS = CONFIG["fps"]
 IPDestino = CONFIG["IPSDP"]
-
-#if not CONFIG.get("mic"):
-#    changeMute(True)
-#else:
-#    mixer = alsaaudio.Mixer(control='Mic', cardindex=0)
 
 def save_config(data):
     global CONFIG, WIDTH, HEIGHT, TARGET_FPS, PREVIEW_WIDTH
