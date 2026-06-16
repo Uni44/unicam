@@ -94,7 +94,8 @@ def load_config():
         "puertoDestinoSRT": "8890",
         "extraDataSRT": "?streamid=publish:cam&mode=caller&transtype=live&latency=600&peerlatency=300&pkt_size=1316",
         "mic": "",
-        "hdmi": "Full"
+        "hdmi": "Full",
+        "AutoReconnect": True
     }
 
     if not os.path.exists(CONFIG_FILE):

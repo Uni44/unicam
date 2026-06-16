@@ -297,9 +297,13 @@ footer {
 	<!-- Utilidades -->
     <div class="card">
       <h2>Funciones</h2>
-	  <button class="btn" onclick="restartStream()">START</button>
-	  <button class="btn" id="zoomIn">ZOOM +</button>
-	  <button class="btn" id="zoomOut">ZOOM -</button>
+      <button class="btn" onclick="restartStream()">START</button>
+      <button class="btn" onclick="stopStream()">STOP</button>
+      <label style="display:inline-block;margin-left:10px; color:#ddd; font-size:13px;">
+        <input type="checkbox" id="AutoReconnect" style="margin-right:6px;"> Auto Reconnect
+      </label>
+      <button class="btn" id="zoomIn">ZOOM +</button>
+      <button class="btn" id="zoomOut">ZOOM -</button>
 	  <h2> </h2>
       <button class="btn" onclick="window.location.href='/files'">Files</button>
 	  <button class="btn" onclick="window.location.href='/browse/home/pi/Unicam/fotos'">Pictures</button>
@@ -676,6 +680,7 @@ footer {
   </section>
 
   <footer>By Uni44</footer>
+  <footer>Version 2.1.0</footer>
   <script src="{{ url_for('static', filename='chart.js') }}"></script>
   
 <script>
@@ -787,10 +792,11 @@ sliders2.forEach(slider => {
 	// Actualiza cada 2 segundos
 	setInterval(fetchSystemStatus, 2000);
 
-	// Utilidades Pi (requiere backend)
-	function restartPi(){fetch('/restart',{method:'POST'});}
-	function shutdownPi(){fetch('/shutdown',{method:'POST'});}
-	function restartStream(){fetch('/start',{method:'POST'});}
+  // Utilidades Pi (requiere backend)
+  function restartPi(){fetch('/restart',{method:'POST'});}
+  function shutdownPi(){fetch('/shutdown',{method:'POST'});}
+  function restartStream(){fetch('/start',{method:'POST'});}
+  function stopStream(){fetch('/stop',{method:'POST'});}
 	
 	const ctx = document.getElementById('unicamChart').getContext('2d');
 	const unicamChart = new Chart(ctx, {
@@ -912,7 +918,8 @@ const checks = [
   "AeEnable",
   "AfTrigger",
   "StatsOutputEnable",
-  "CnnEnableInputTensor"
+  "CnnEnableInputTensor",
+  "AutoReconnect"
 ];
 
 // Selects

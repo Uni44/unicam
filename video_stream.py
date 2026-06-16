@@ -20,6 +20,11 @@ preview_thread = None
 video_thread_running = threading.Event()
 rtsp_thread_running = threading.Event()
 
+stream_proc = None
+watchdog_thread = None
+watchdog_running = threading.Event()
+restart_lock = threading.Lock()
+
 zoom_lock = threading.Lock()
 zoom_state = {'direction': 0, 'factor': 1.0}
 zoom_var = 0.04
@@ -39,7 +44,7 @@ threading.Thread(target=zoom_loop, daemon=True).start()
 def video_stream_thread():
     video_thread_running.set()
     print("📡 Hilo de video stream iniciado.")
-    global picam2, zoom_state, latest_frame, frame_lock, CONFIG, WIDTH, HEIGHT, TARGET_FPS
+    global picam2, zoom_state, latest_frame, frame_lock, CONFIG, WIDTH, HEIGHT, TARGET_FPS, stream_proc
     
     CONFIG = load_config()
     mic_path = CONFIG.get("mic")
@@ -65,7 +70,8 @@ def video_stream_thread():
     cmd = [
         'ffmpeg',
         '-y',
-
+        '-fflags', 'nobuffer',
+        '-flags', 'low_delay',
         # VIDEO INPUT
         '-use_wallclock_as_timestamps', '1',
         '-thread_queue_size', '4096',
@@ -74,8 +80,7 @@ def video_stream_thread():
         '-pix_fmt', 'yuv420p',
         '-s', f'{WIDTH}x{HEIGHT}',
         '-r', str(TARGET_FPS),
-        '-i', '-',   # video stdin
-
+        '-i', '-',
         # VIDEO ENCODE
         '-g', '60',
         '-c:v', 'libx264',
@@ -85,31 +90,31 @@ def video_stream_thread():
         '-bufsize', CONFIG.get("bitrate"),
         '-tune', 'zerolatency',
         '-x264opts', 'keyint=30:scenecut=0:repeat-headers=1',
-
         # OUTPUT
         '-f', 'rtsp',
         '-rtsp_transport', CONFIG.get("protocolo"),
         f'{CONFIG.get("IPDestino")}'
     ]
-    
+
     if CONFIG.get("mic"):
         cmd.extend([
-            '-thread_queue_size', '4096', # Aumentamos el buffer de entrada
+            '-thread_queue_size', '512',
             '-f', 'alsa',
-            '-ar', '44100',            # Forzamos 44.1kHz (estándar estable)
+            '-ar', '44100',
             '-ac', '1',
+            '-fragment_size', '512',
             '-i', CONFIG.get("mic"),
             '-c:a', 'aac',
-            '-b:a', '96k',             # Bajamos un poco el bitrate para liberar CPU
-            '-af', 'aresample=async=1:min_hard_comp=0.100000:first_pts=0' # Sincronización agresiva
+            '-b:a', '96k',
+            '-af', 'aresample=async=1',
+            '-vsync', 'passthrough',
         ])
     else:
-        print("No se detecto micrifono: transmision solo de video.")
-    
-    # 1. Base del comando y Flags Globales
-    cmd_srt = ['ffmpeg', '-y']
+        print("No se detecto microfono: transmision solo de video.")
 
-    # 2. INPUT VIDEO (stdin)
+    # SRT
+    cmd_srt = ['ffmpeg', '-y', '-fflags', 'nobuffer', '-flags', 'low_delay']
+
     cmd_srt.extend([
         '-use_wallclock_as_timestamps', '1',
         '-thread_queue_size', '4096',
@@ -120,18 +125,16 @@ def video_stream_thread():
         '-i', '-'
     ])
 
-    # 3. INPUT AUDIO (Si existe)
     if CONFIG.get("mic"):
         cmd_srt.extend([
-            '-thread_queue_size', '4096',
+            '-thread_queue_size', '512',
             '-f', 'alsa',
-            '-ac', '2',
+            '-ar', '44100',
+            '-ac', '1',
             '-i', CONFIG.get("mic")
         ])
 
-    # 4. CONFIGURACIÓN DE SALIDA (Encoding y Protocolo)
     cmd_srt.extend([
-        # Video Encode
         '-c:v', 'libx264',
         '-preset', CONFIG.get("preset"),
         '-b:v', CONFIG.get("bitrate"),
@@ -140,19 +143,24 @@ def video_stream_thread():
         '-tune', 'zerolatency',
         '-g', '60',
         '-x264opts', 'keyint=30:scenecut=0:repeat-headers=1',
+        '-fps_mode', 'passthrough',
     ])
 
     if CONFIG.get("mic"):
         cmd_srt.extend([
             '-c:a', 'aac',
             '-b:a', '128k',
-            "-map", "0:v", "-map", "1:a"
+            '-af', 'aresample=async=1',
+            '-map', '0:v', '-map', '1:a'
         ])
 
-    # 5. DESTINO FINAL
+    if CONFIG.get("mic"):
+        os.environ["ALSA_PCM_BUFFER_TIME"] = "20000"
+        os.environ["ALSA_PCM_PERIOD_TIME"] = "5000"
+
     srt_url = f'srt://{CONFIG.get("IPDestinoSRT")}:{CONFIG.get("puertoDestinoSRT")}{CONFIG.get("extraDataSRT")}'
     cmd_srt.extend(['-f', 'mpegts', srt_url])
-    
+
     proc = None
     
     if CONFIG.get("protocolo_stream") == "RTSP":
@@ -162,6 +170,9 @@ def video_stream_thread():
     if CONFIG.get("protocolo_stream") == "SRT":
         with open("stream_log.txt", "wb") as f:
             proc = subprocess.Popen(cmd_srt, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
+
+    # Expose subprocess to watchdog
+    stream_proc = proc
 
     stop_error = False
     start_blink()
@@ -233,6 +244,11 @@ def video_stream_thread():
                     p.wait(timeout=2) 
                 except subprocess.TimeoutExpired:
                     p.kill()
+        # Clear watchdog-visible process
+        try:
+            stream_proc = None
+        except:
+            pass
         picam2.close()
         cv2.destroyAllWindows()
         print("🔴 Hilo de video stream parado.")
@@ -264,6 +280,11 @@ def restart_video_thread():
     video_thread.start()
     preview_thread = Thread(target=lcd_preview_thread)
     preview_thread.start()
+    # arrancar watchdog que vigila el proceso ffmpeg
+    try:
+        start_stream_watchdog()
+    except Exception:
+        pass
 
 def lcd_preview_thread(): 
     global latest_frame, CONFIG
@@ -385,3 +406,42 @@ def zoom():
     return ('', 204)
     
 from gpio_control import start_blink, stop_blink
+
+
+def stream_watchdog():
+    """Monitorea el proceso ffmpeg en `stream_proc` y reinicia usando
+    `restart_video_thread()` si `AutoReconnect` está activado en la configuración.
+    Ejecuta en un hilo daemon separado."""
+    global stream_proc, watchdog_running
+    while watchdog_running.is_set():
+        try:
+            proc = stream_proc
+            if proc is not None:
+                if proc.poll() is not None:  # ffmpeg terminó
+                    cfg = load_config()
+                    if cfg.get("AutoReconnect"):
+                        print("[watchdog] ffmpeg murió, intentando reiniciar stream...")
+                        try:
+                            with restart_lock:
+                                restart_video_thread()
+                        except Exception as e:
+                            print("[watchdog] reinicio fallido:", e)
+                            time.sleep(2)
+                        else:
+                            # dar tiempo al nuevo hilo para arrancar
+                            time.sleep(2)
+                    else:
+                        watchdog_running.clear()
+                        break
+        except Exception as e:
+            print("[watchdog] error:", e)
+        time.sleep(3)
+
+
+def start_stream_watchdog():
+    global watchdog_thread, watchdog_running
+    if watchdog_thread and watchdog_thread.is_alive():
+        return
+    watchdog_running.set()
+    watchdog_thread = threading.Thread(target=stream_watchdog, daemon=True)
+    watchdog_thread.start()

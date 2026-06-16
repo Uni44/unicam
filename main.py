@@ -186,6 +186,55 @@ def start():
         capture_rec()
     return '', 204
 
+
+@app.route('/stop', methods=['POST'])
+def stop():
+    # Import modules (they are already loaded but import safely)
+    try:
+        import video_stream
+    except Exception:
+        video_stream = None
+    try:
+        import video_rec
+    except Exception:
+        video_rec = None
+    try:
+        import camera_config as cam_cfg
+    except Exception:
+        cam_cfg = None
+
+    # Stop stream thread if running
+    try:
+        if video_stream and CONFIG.get("modo") == "Stream":
+            video_stream.video_thread_running.clear()
+            if getattr(video_stream, 'video_thread', None) and video_stream.video_thread.is_alive():
+                video_stream.video_thread.join(timeout=2)
+    except Exception as e:
+        logging.error(f"Error stopping stream: {e}")
+
+    # Stop recording if active
+    try:
+        if video_rec and CONFIG.get("modo") == "Grabar":
+            # ensure recording flag is false so recording stops cleanly
+            try:
+                video_rec.recTake = False
+            except Exception:
+                pass
+            video_rec.video_thread_running.clear()
+            if getattr(video_rec, 'video_thread', None) and video_rec.video_thread.is_alive():
+                video_rec.video_thread.join(timeout=2)
+    except Exception as e:
+        logging.error(f"Error stopping recording: {e}")
+
+    # mark camera as stopped
+    try:
+        if cam_cfg:
+            cam_cfg.changeRunningCamera(False)
+    except Exception:
+        pass
+
+    return '', 204
+
 @app.route("/wifi", methods=["GET", "POST"])
 def api_wifi():
     return wifi()
