@@ -21,6 +21,7 @@ video_thread_running = threading.Event()
 rtsp_thread_running = threading.Event()
 
 stream_proc = None
+unclutter_proc = None
 watchdog_thread = None
 watchdog_running = threading.Event()
 restart_lock = threading.Lock()
@@ -44,7 +45,7 @@ threading.Thread(target=zoom_loop, daemon=True).start()
 def video_stream_thread():
     video_thread_running.set()
     print("📡 Hilo de video stream iniciado.")
-    global picam2, zoom_state, latest_frame, frame_lock, CONFIG, WIDTH, HEIGHT, TARGET_FPS, stream_proc
+    global picam2, zoom_state, latest_frame, frame_lock, CONFIG, WIDTH, HEIGHT, TARGET_FPS, stream_proc, unclutter_proc
     
     CONFIG = load_config()
     mic_path = CONFIG.get("mic")
@@ -70,6 +71,7 @@ def video_stream_thread():
     cmd = [
         'ffmpeg',
         '-y',
+        '-hide_banner', '-loglevel', 'warning', '-nostats',
         '-fflags', 'nobuffer',
         '-flags', 'low_delay',
         # VIDEO INPUT
@@ -84,6 +86,7 @@ def video_stream_thread():
         # VIDEO ENCODE
         '-g', '60',
         '-c:v', 'libx264',
+        '-threads', '3',
         '-preset', CONFIG.get("preset"),
         '-b:v', CONFIG.get("bitrate"),
         '-maxrate', CONFIG.get("bitrate"),
@@ -113,7 +116,8 @@ def video_stream_thread():
         print("No se detecto microfono: transmision solo de video.")
 
     # SRT
-    cmd_srt = ['ffmpeg', '-y', '-fflags', 'nobuffer', '-flags', 'low_delay']
+    cmd_srt = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning', '-nostats',
+               '-fflags', 'nobuffer', '-flags', 'low_delay']
 
     cmd_srt.extend([
         '-use_wallclock_as_timestamps', '1',
@@ -136,6 +140,7 @@ def video_stream_thread():
 
     cmd_srt.extend([
         '-c:v', 'libx264',
+        '-threads', '3',
         '-preset', CONFIG.get("preset"),
         '-b:v', CONFIG.get("bitrate"),
         '-maxrate', CONFIG.get("bitrate"),
@@ -178,15 +183,20 @@ def video_stream_thread():
     start_blink()
     changeRunningCamera(True)
     
-    os.environ["SDL_VIDEO_ALLOW_SCREENSAVER"] = "1"
-    os.environ["SDL_MOUSE_RELATIVE"] = "1"
-    os.environ["SDL_NOMOUSE"] = "1"
-    subprocess.Popen(['unclutter', '-idle', '0'])
-    hdmiState = True
     opcion_hdmi = CONFIG.get("hdmi")
+    hdmiState = opcion_hdmi != "Off"
     proc_hdmi = None
-    if opcion_hdmi == "Off":
-        hdmiState = False
+
+    if hdmiState:
+        os.environ["SDL_VIDEO_ALLOW_SCREENSAVER"] = "1"
+        os.environ["SDL_MOUSE_RELATIVE"] = "1"
+        os.environ["SDL_NOMOUSE"] = "1"
+        if unclutter_proc is not None and unclutter_proc.poll() is None:
+            try:
+                unclutter_proc.terminate()
+            except Exception:
+                pass
+        unclutter_proc = subprocess.Popen(['unclutter', '-idle', '0'])
     res_hdmi = f"{WIDTH}x{HEIGHT}"
     if opcion_hdmi == "Mid":
         res_hdmi = "1280x720"
@@ -194,6 +204,7 @@ def video_stream_thread():
         res_hdmi = "640x360"
     cmd_hdmi = [
         'ffmpeg',
+        '-hide_banner', '-loglevel', 'warning', '-nostats',
         '-f', 'rawvideo',
         '-pixel_format', 'yuv420p',
         '-video_size', f'{WIDTH}x{HEIGHT}',
@@ -406,7 +417,6 @@ def zoom():
     return ('', 204)
     
 from gpio_control import start_blink, stop_blink
-
 
 def stream_watchdog():
     """Monitorea el proceso ffmpeg en `stream_proc` y reinicia usando

@@ -80,6 +80,7 @@ def video_stream_thread():
         res_hdmi = "640x360"
     cmd_hdmi = [
         'ffmpeg',
+        '-hide_banner', '-loglevel', 'warning', '-nostats',
         '-f', 'rawvideo',
         '-pixel_format', 'yuv420p',
         '-video_size', f'{WIDTH}x{HEIGHT}',
@@ -105,7 +106,7 @@ def video_stream_thread():
                 output_name = os.path.join(carpeta, time.strftime("record_%Y%m%d_%H%M%S.mp4"))
                 # Reordenado y optimizado
                 cmd = [
-                    "ffmpeg", "-y",
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-nostats",
                     "-thread_queue_size", "1024",
                     "-f", "rawvideo",
                     "-pix_fmt", "yuv420p",

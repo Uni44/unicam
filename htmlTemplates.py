@@ -680,7 +680,7 @@ footer {
   </section>
 
   <footer>By Uni44</footer>
-  <footer>Version 2.1.0</footer>
+  <footer>Version 2.1.1</footer>
   <script src="{{ url_for('static', filename='chart.js') }}"></script>
   
 <script>

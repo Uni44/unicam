@@ -72,6 +72,7 @@ def video_stream_thread():
         res_hdmi = "640x360"
     cmd_hdmi = [
         'ffmpeg',
+        '-hide_banner', '-loglevel', 'warning', '-nostats',
         '-f', 'rawvideo',
         '-pixel_format', 'yuv420p',
         '-video_size', f'{WIDTH}x{HEIGHT}',
