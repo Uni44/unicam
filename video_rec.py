@@ -111,7 +111,7 @@ def video_stream_thread():
                     "-f", "rawvideo",
                     "-pix_fmt", "yuv420p",
                     "-s", f"{WIDTH}x{HEIGHT}",
-                    "-r", str(TARGET_FPS),
+                    "-framerate", str(TARGET_FPS),
                     "-i", "-",  # Entrada de video
                 ]
 
@@ -218,8 +218,27 @@ def capture_rec():
 def apply_config_to_active_camera_rec(todo=False):
     global picam2, CONFIG
     if picam2 is not None:
+        # Guardar valores críticos actuales
+        old_resolution = str(CONFIG.get("resolution", ""))
+        old_fps = str(CONFIG.get("fps", ""))
+        old_bitrate = str(CONFIG.get("bitrate", ""))
+
+        # Aplicar configuración a la cámara activa
         aplicar_camara_config(picam2, todo)
         CONFIG = load_config()
+
+        # Valores nuevos tras aplicar configuración
+        new_resolution = str(CONFIG.get("resolution", ""))
+        new_fps = str(CONFIG.get("fps", ""))
+        new_bitrate = str(CONFIG.get("bitrate", ""))
+
+        # Si hay cambios en resolución, fps o bitrate, reiniciar hilo de grabación
+        if todo or (old_resolution != new_resolution) or (old_fps != new_fps) or (old_bitrate != new_bitrate):
+            print("🔁 Cambios críticos en config detectados; reiniciando hilo de grabación.")
+            try:
+                restart_rec_thread()
+            except Exception as e:
+                print("❌ Error reiniciando hilo rec:", e)
 
 ESTIMADO_MB_POR_MINUTO = 370
 minutos_restantes = 0

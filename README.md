@@ -1,4 +1,4 @@
-# 🎥 Unicam — V2.1.1
+# 🎥 Unicam — V2.2.0
 
 **Unicam** es un sistema de cámara digital completo escrito en **Python**, diseñado específicamente para **Raspberry Pi 5** y módulos de cámara compatibles.
 El proyecto permite capturar fotos, grabar video y transmitir en vivo mediante RTSP/SRT, combinando hardware económico con un workflow profesional.

@@ -6,6 +6,8 @@ import platform
 import sounddevice as sd
 import numpy as np
 import alsaaudio
+import subprocess
+import re
 
 mixer = None
     
@@ -299,6 +301,63 @@ def aplicar_camara_config(picam2, todo=False):
 # Obtener configuración actual
 def get_camera_config():
     return jsonify(load_config())
+
+
+def list_mics():
+    """Devuelve una lista de dispositivos de captura ALSA en formato usable por FFmpeg.
+    Cada elemento es un dict {'value': 'plughw:1,0', 'label': 'USB Audio (card 1, device 0)'}
+    """
+    devices = []
+    try:
+        out = subprocess.check_output(['arecord', '-l'], stderr=subprocess.STDOUT).decode(errors='ignore')
+    except Exception:
+        out = ''
+
+    # Parsear líneas tipo: card 1: Device [USB PnP Audio Device], device 0: USB Audio [USB Audio]
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        m = re.match(r'card\s+(\d+):\s*(.*?)\s*\[(.*?)\],\s*device\s+(\d+):\s*(.*?)\s*\[(.*?)\]', line)
+        if m:
+            card = m.group(1)
+            card_label = m.group(3)
+            device = m.group(4)
+            dev_label = m.group(6)
+            value = f'plughw:{card},{device}'
+            label = f"{card_label} - {dev_label} (card {card}, device {device})"
+            devices.append({'value': value, 'label': label})
+
+    # Fallback leyendo /proc/asound/cards si arecord no devolvió nada
+    if not devices:
+        try:
+            with open('/proc/asound/cards', 'r') as f:
+                lines = [l.strip() for l in f.readlines() if l.strip()]
+            for l in lines:
+                # formato: 0 [bcm2835_alsa]: bcm2835_alsa - bcm2835 ALSA
+                parts = l.split(None, 2)
+                if not parts:
+                    continue
+                cardnum = parts[0]
+                label = parts[-1] if len(parts) >= 2 else f'card {cardnum}'
+                value = f'plughw:{cardnum},0'
+                devices.append({'value': value, 'label': f'{label} (card {cardnum}, device 0)'})
+        except Exception:
+            pass
+
+    # Añadir opción por defecto si no encontramos nada
+    if not devices:
+        devices.append({'value': '', 'label': 'No mic detected'})
+
+    # Dedup y orden
+    seen = set()
+    unique = []
+    for d in devices:
+        if d['value'] in seen:
+            continue
+        unique.append(d)
+        seen.add(d['value'])
+    return unique
 
 # Guardar configuración nueva
 def update_camera_config():

@@ -72,7 +72,7 @@ def video_stream_thread():
         'ffmpeg',
         '-y',
         '-hide_banner', '-loglevel', 'warning', '-nostats',
-        '-fflags', 'nobuffer',
+        '-fflags', 'nobuffer+genpts',
         '-flags', 'low_delay',
         # VIDEO INPUT
         '-use_wallclock_as_timestamps', '1',
@@ -81,9 +81,9 @@ def video_stream_thread():
         '-vcodec', 'rawvideo',
         '-pix_fmt', 'yuv420p',
         '-s', f'{WIDTH}x{HEIGHT}',
-        '-r', str(TARGET_FPS),
+        '-framerate', str(TARGET_FPS),
         '-i', '-',
-        # VIDEO ENCODE
+        # VIDEO ENCODE (will be followed by audio inputs if present)
         '-g', '60',
         '-c:v', 'libx264',
         '-threads', '3',
@@ -93,13 +93,17 @@ def video_stream_thread():
         '-bufsize', CONFIG.get("bitrate"),
         '-tune', 'zerolatency',
         '-x264opts', 'keyint=30:scenecut=0:repeat-headers=1',
-        # OUTPUT
+    ]
+
+    # Output options for RTSP (append after inputs)
+    rtsp_output_opts = [
         '-f', 'rtsp',
-        '-rtsp_transport', CONFIG.get("protocolo"),
-        f'{CONFIG.get("IPDestino")}'
+        '-rtsp_transport', CONFIG.get('protocolo'),
+        f"{CONFIG.get('IPDestino')}"
     ]
 
     if CONFIG.get("mic"):
+        # Add audio capture input and codec before output options
         cmd.extend([
             '-thread_queue_size', '512',
             '-f', 'alsa',
@@ -110,14 +114,15 @@ def video_stream_thread():
             '-c:a', 'aac',
             '-b:a', '96k',
             '-af', 'aresample=async=1',
-            '-vsync', 'passthrough',
         ])
+        # Explicit mapping to ensure correct streams order
+        cmd.extend(['-map', '0:v', '-map', '1:a', '-vsync', 'passthrough'])
     else:
         print("No se detecto microfono: transmision solo de video.")
 
     # SRT
     cmd_srt = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning', '-nostats',
-               '-fflags', 'nobuffer', '-flags', 'low_delay']
+               '-fflags', 'nobuffer+genpts', '-flags', 'low_delay']
 
     cmd_srt.extend([
         '-use_wallclock_as_timestamps', '1',
@@ -125,7 +130,7 @@ def video_stream_thread():
         '-f', 'rawvideo',
         '-pix_fmt', 'yuv420p',
         '-s', f'{WIDTH}x{HEIGHT}',
-        '-r', str(TARGET_FPS),
+        '-framerate', str(TARGET_FPS),
         '-i', '-'
     ])
 
@@ -169,6 +174,8 @@ def video_stream_thread():
     proc = None
     
     if CONFIG.get("protocolo_stream") == "RTSP":
+        # append RTSP output options now that all inputs are defined
+        cmd.extend(rtsp_output_opts)
         with open("stream_log.txt", "wb") as f:
             proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
 

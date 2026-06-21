@@ -11,7 +11,7 @@ import os
 import yappi
 import logging
 from camera_config import (
-    save_config, get_camera_config, update_camera_config, CONFIG, getRunningCamera
+    save_config, get_camera_config, update_camera_config, CONFIG, getRunningCamera, list_mics
 )
 from video_stream import (
     video_stream_thread, restart_video_thread, zoom_yuv420, zoom_loop, zoom, rtp_to_rtsp_thread, apply_config_to_active_camera
@@ -178,13 +178,48 @@ def shutdown():
 
 @app.route('/start', methods=['POST'])
 def start():
-    if CONFIG.get("modo") == "Stream":
-        restart_video_thread()
-    if CONFIG.get("modo") == "Foto":
-        capture_foto()
-    if CONFIG.get("modo") == "Grabar":
-        capture_rec()
+    try:
+        import camera_config as cam_cfg
+        cfg = cam_cfg.load_config()
+        mode = cfg.get("modo")
+    except Exception:
+        mode = CONFIG.get("modo")
+
+    try:
+        if mode == "Stream":
+            restart_video_thread()
+        elif mode == "Foto":
+            capture_foto()
+        elif mode == "Grabar":
+            try:
+                import video_rec
+            except Exception:
+                video_rec = None
+
+            # Asegurarnos que el hilo de captura/rec esté corriendo
+            try:
+                if video_rec and (getattr(video_rec, 'video_thread', None) is None or not getattr(video_rec, 'video_thread').is_alive() or not getattr(video_rec, 'video_thread_running', None).is_set()):
+                    video_rec.restart_rec_thread()
+            except Exception as e:
+                logging.error(f"Error iniciando hilo de rec: {e}")
+
+            # Iniciar grabación (si no estaba ya grabando)
+            try:
+                if video_rec and not getattr(video_rec, 'recTake', False):
+                    video_rec.capture_rec()
+            except Exception as e:
+                logging.error(f"Error arrancando grabación: {e}")
+    except Exception as e:
+        logging.error(f"Error en start handler: {e}")
     return '', 204
+
+
+@app.route('/api/mics')
+def api_mics():
+    try:
+        return jsonify(list_mics())
+    except Exception as e:
+        return jsonify([])
 
 
 @app.route('/stop', methods=['POST'])
@@ -203,9 +238,22 @@ def stop():
     except Exception:
         cam_cfg = None
 
+    # Determine current mode using live config if possible
+    try:
+        cfg_mode = None
+        if cam_cfg:
+            try:
+                cfg_mode = cam_cfg.load_config().get("modo")
+            except Exception:
+                cfg_mode = None
+    except Exception:
+        cfg_mode = None
+
+    mode = cfg_mode if cfg_mode is not None else CONFIG.get("modo")
+
     # Stop stream thread if running
     try:
-        if video_stream and CONFIG.get("modo") == "Stream":
+        if video_stream and mode == "Stream":
             video_stream.video_thread_running.clear()
             if getattr(video_stream, 'video_thread', None) and video_stream.video_thread.is_alive():
                 video_stream.video_thread.join(timeout=2)
@@ -214,21 +262,21 @@ def stop():
 
     # Stop recording if active
     try:
-        if video_rec and CONFIG.get("modo") == "Grabar":
+        if video_rec and mode == "Grabar":
             # ensure recording flag is false so recording stops cleanly
             try:
                 video_rec.recTake = False
             except Exception:
                 pass
-            video_rec.video_thread_running.clear()
-            if getattr(video_rec, 'video_thread', None) and video_rec.video_thread.is_alive():
-                video_rec.video_thread.join(timeout=2)
+            # Keep the capture thread running so HDMI/stream remain active.
+            # The recording thread loop will detect `recTake == False` and
+            # stop the ffmpeg subprocess without closing the camera.
     except Exception as e:
         logging.error(f"Error stopping recording: {e}")
 
-    # mark camera as stopped
+    # mark camera as stopped (but don't mark camera STOPPED when in Grabar mode)
     try:
-        if cam_cfg:
+        if cam_cfg and mode != "Grabar":
             cam_cfg.changeRunningCamera(False)
     except Exception:
         pass

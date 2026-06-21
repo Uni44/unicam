@@ -434,10 +434,14 @@ footer {
 		<input type="text" id="extraDataSRT" placeholder="?streamid=publish:cam&pkt_size=1316&latency=0">
 	</div>
 	<br><br>
-	<div class="setting">
-		<label>Mic:</label>
-		<input type="text" id="mic" placeholder="">
-	</div>
+  <div class="setting">
+    <label>Mic:</label>
+    <select id="mic">
+      <option value="!">Disabled (!)</option>
+      <option value="">No mic (empty)</option>
+    </select>
+    <div style="font-size:12px;color:#aaa;margin-top:6px;">Selecciona el mic o "Disabled" para desactivar (se usa '!' para ignorar).</div>
+  </div>
 	<br><br>
 	<button id="settings-btn-1">Send</button>
 </div>
@@ -680,7 +684,7 @@ footer {
   </section>
 
   <footer>By Uni44</footer>
-  <footer>Version 2.1.1</footer>
+  <footer>Version 2.2.0</footer>
   <script src="{{ url_for('static', filename='chart.js') }}"></script>
   
 <script>
@@ -1002,8 +1006,34 @@ const selects = [
 		});
 	}
 
-	// Ejecutar al inicio
-	window.onload = cargarConfiguracion;
+    // Obtener lista de micrófonos desde backend y cargar configuración al inicio
+    async function fetchMics() {
+      try {
+        const res = await fetch('/api/mics');
+        if (!res.ok) return;
+        const list = await res.json();
+        const sel = document.getElementById('mic');
+        if (!sel) return;
+        // limpiar y añadir opciones básicas
+        sel.innerHTML = '';
+        const disabledOpt = new Option('Disabled (!)', '!');
+        sel.add(disabledOpt);
+        const noneOpt = new Option('No mic (empty)', '');
+        sel.add(noneOpt);
+        list.forEach(item => {
+          const opt = new Option(item.label, item.value);
+          sel.add(opt);
+        });
+      } catch (e) {
+        console.error('Error fetching mics:', e);
+      }
+    }
+
+    // Ejecutar al inicio: primero traer mics, luego cargar configuración
+    window.onload = async function() {
+      await fetchMics();
+      cargarConfiguracion();
+    };
 	//setInterval(cargarConfiguracion, 60000);
 
 	// ================================
