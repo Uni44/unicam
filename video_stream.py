@@ -14,6 +14,29 @@ import numpy as np
 from datetime import datetime
 import os
 
+
+def ensure_xdg_runtime_dir():
+    xr = os.environ.get("XDG_RUNTIME_DIR")
+    if xr and os.path.isdir(xr):
+        return
+    try:
+        uid = os.getuid()
+    except Exception:
+        uid = None
+    if uid:
+        candidate = f"/run/user/{uid}"
+        if os.path.isdir(candidate):
+            os.environ["XDG_RUNTIME_DIR"] = candidate
+            return
+    # Fallback: create a tmp runtime dir with safe perms
+    fallback = f"/tmp/xdg-runtime-{os.getpid()}"
+    try:
+        os.makedirs(fallback, exist_ok=True)
+        os.chmod(fallback, 0o700)
+        os.environ["XDG_RUNTIME_DIR"] = fallback
+    except Exception:
+        os.environ["XDG_RUNTIME_DIR"] = "/tmp"
+
 video_thread = None
 preview_thread = None
 
@@ -25,6 +48,10 @@ unclutter_proc = None
 watchdog_thread = None
 watchdog_running = threading.Event()
 restart_lock = threading.Lock()
+proc_hdmi = None
+hdmi_restart_event = threading.Event()
+hdmi_write_lock = threading.Lock()
+hdmi_paused = threading.Event()
 
 zoom_lock = threading.Lock()
 zoom_state = {'direction': 0, 'factor': 1.0}
@@ -41,6 +68,22 @@ def zoom_loop():
 
 # Arrancamos un único hilo para siempre
 threading.Thread(target=zoom_loop, daemon=True).start()
+
+
+def _safe_start_blink():
+    try:
+        from gpio_control import start_blink
+        start_blink()
+    except Exception:
+        pass
+
+
+def _safe_stop_blink():
+    try:
+        from gpio_control import stop_blink
+        stop_blink()
+    except Exception:
+        pass
 
 def video_stream_thread():
     video_thread_running.set()
@@ -83,48 +126,49 @@ def video_stream_thread():
         '-s', f'{WIDTH}x{HEIGHT}',
         '-framerate', str(TARGET_FPS),
         '-i', '-',
-        # VIDEO ENCODE (will be followed by audio inputs if present)
+    ]
+
+    # VIDEO encode options
+    cmd.extend([
         '-g', '60',
         '-c:v', 'libx264',
         '-threads', '3',
-        '-preset', CONFIG.get("preset"),
-        '-b:v', CONFIG.get("bitrate"),
-        '-maxrate', CONFIG.get("bitrate"),
-        '-bufsize', CONFIG.get("bitrate"),
+        '-preset', CONFIG.get('preset'),
+        '-b:v', CONFIG.get('bitrate'),
+        '-maxrate', CONFIG.get('bitrate'),
+        '-bufsize', CONFIG.get('bitrate'),
         '-tune', 'zerolatency',
         '-x264opts', 'keyint=30:scenecut=0:repeat-headers=1',
-    ]
+    ])
+
+    # Add audio input if present
+    if CONFIG.get('mic'):
+        cmd.extend([
+            '-thread_queue_size', '512',
+            '-f', 'alsa',
+            '-ar', '48000',
+            '-ac', '1',
+            '-fragment_size', '512',
+            '-i', CONFIG.get('mic'),
+            '-c:a', 'aac',
+            '-b:a', '96k',
+            '-af', 'aresample=async=1:min_hard_comp=0.100:first_pts=0',
+        ])
+        cmd.extend(['-map', '0:v', '-map', '1:a'])
 
     # Output options for RTSP (append after inputs)
     rtsp_output_opts = [
+        '-flush_packets', '1',
+        '-fps_mode', 'passthrough',
         '-f', 'rtsp',
         '-rtsp_transport', CONFIG.get('protocolo'),
         f"{CONFIG.get('IPDestino')}"
     ]
 
-    if CONFIG.get("mic"):
-        # Add audio capture input and codec before output options
-        cmd.extend([
-            '-thread_queue_size', '512',
-            '-f', 'alsa',
-            '-ar', '44100',
-            '-ac', '1',
-            '-fragment_size', '512',
-            '-i', CONFIG.get("mic"),
-            '-c:a', 'aac',
-            '-b:a', '96k',
-            '-af', 'aresample=async=1',
-        ])
-        # Explicit mapping to ensure correct streams order
-        cmd.extend(['-map', '0:v', '-map', '1:a', '-vsync', 'passthrough'])
-    else:
-        print("No se detecto microfono: transmision solo de video.")
-
-    # SRT
-    cmd_srt = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning', '-nostats',
-               '-fflags', 'nobuffer+genpts', '-flags', 'low_delay']
-
-    cmd_srt.extend([
+    # SRT command (inputs similar to RTSP)
+    cmd_srt = [
+        'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning', '-nostats',
+        '-fflags', 'nobuffer+genpts', '-flags', 'low_delay',
         '-use_wallclock_as_timestamps', '1',
         '-thread_queue_size', '4096',
         '-f', 'rawvideo',
@@ -132,31 +176,31 @@ def video_stream_thread():
         '-s', f'{WIDTH}x{HEIGHT}',
         '-framerate', str(TARGET_FPS),
         '-i', '-'
-    ])
+    ]
 
-    if CONFIG.get("mic"):
+    if CONFIG.get('mic'):
         cmd_srt.extend([
             '-thread_queue_size', '512',
             '-f', 'alsa',
-            '-ar', '44100',
+            '-ar', '48000',
             '-ac', '1',
-            '-i', CONFIG.get("mic")
+            '-i', CONFIG.get('mic')
         ])
 
     cmd_srt.extend([
         '-c:v', 'libx264',
         '-threads', '3',
-        '-preset', CONFIG.get("preset"),
-        '-b:v', CONFIG.get("bitrate"),
-        '-maxrate', CONFIG.get("bitrate"),
-        '-bufsize', CONFIG.get("bitrate"),
+        '-preset', CONFIG.get('preset'),
+        '-b:v', CONFIG.get('bitrate'),
+        '-maxrate', CONFIG.get('bitrate'),
+        '-bufsize', CONFIG.get('bitrate'),
         '-tune', 'zerolatency',
         '-g', '60',
         '-x264opts', 'keyint=30:scenecut=0:repeat-headers=1',
         '-fps_mode', 'passthrough',
     ])
 
-    if CONFIG.get("mic"):
+    if CONFIG.get('mic'):
         cmd_srt.extend([
             '-c:a', 'aac',
             '-b:a', '128k',
@@ -164,16 +208,19 @@ def video_stream_thread():
             '-map', '0:v', '-map', '1:a'
         ])
 
-    if CONFIG.get("mic"):
-        os.environ["ALSA_PCM_BUFFER_TIME"] = "20000"
-        os.environ["ALSA_PCM_PERIOD_TIME"] = "5000"
+    if CONFIG.get('mic'):
+        os.environ['ALSA_PCM_BUFFER_TIME'] = '20000'
+        os.environ['ALSA_PCM_PERIOD_TIME'] = '5000'
 
     srt_url = f'srt://{CONFIG.get("IPDestinoSRT")}:{CONFIG.get("puertoDestinoSRT")}{CONFIG.get("extraDataSRT")}'
-    cmd_srt.extend(['-f', 'mpegts', srt_url])
+    # finalize SRT output options
+    cmd_srt.extend(['-flush_packets', '1', '-f', 'mpegts', srt_url])
 
     proc = None
     
     if CONFIG.get("protocolo_stream") == "RTSP":
+        # ensure XDG_RUNTIME_DIR for SDL/Wayland before launching
+        ensure_xdg_runtime_dir()
         # append RTSP output options now that all inputs are defined
         cmd.extend(rtsp_output_opts)
         with open("stream_log.txt", "wb") as f:
@@ -187,12 +234,12 @@ def video_stream_thread():
     stream_proc = proc
 
     stop_error = False
-    start_blink()
+    _safe_start_blink()
     changeRunningCamera(True)
     
     opcion_hdmi = CONFIG.get("hdmi")
     hdmiState = opcion_hdmi != "Off"
-    proc_hdmi = None
+    global proc_hdmi
 
     if hdmiState:
         os.environ["SDL_VIDEO_ALLOW_SCREENSAVER"] = "1"
@@ -211,20 +258,32 @@ def video_stream_thread():
         res_hdmi = "640x360"
     cmd_hdmi = [
         'ffmpeg',
-        '-hide_banner', '-loglevel', 'warning', '-nostats',
+        '-hide_banner', '-loglevel', 'error', '-nostats',
+        '-fflags', 'nobuffer+genpts',
+        '-flags', 'low_delay',
+        '-use_wallclock_as_timestamps', '1',
+        '-thread_queue_size', '4096',
         '-f', 'rawvideo',
-        '-pixel_format', 'yuv420p',
-        '-video_size', f'{WIDTH}x{HEIGHT}',
+        '-pix_fmt', 'yuv420p',
+        '-s', f'{WIDTH}x{HEIGHT}',
+        '-framerate', str(TARGET_FPS),
         '-i', '-', 
         '-vf', f'scale={res_hdmi}:flags=neighbor', 
         '-f', 'sdl',
         '-window_fullscreen', '1',
-        '-vsync', '0', 
+        '-fps_mode', 'passthrough',
         'SDL_Display'
     ]
     if hdmiState:
-        with open("hdmi_log.txt", "wb") as f:
-            proc_hdmi = subprocess.Popen(cmd_hdmi, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
+        # Abrir logs en append para preservar historial
+        ensure_xdg_runtime_dir()
+        with open("hdmi_log.txt", "ab") as f:
+            try:
+                proc_hdmi = subprocess.Popen(cmd_hdmi, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
+                time.sleep(0.12)
+            except Exception as e:
+                print("❌ No se pudo iniciar HDMI ffmpeg:", e)
+                proc_hdmi = None
 
     try:
         while video_thread_running.is_set() and not stop_error:
@@ -232,21 +291,104 @@ def video_stream_thread():
                 frame = picam2.capture_array("main")
                 current_zoom = zoom_state['factor']
                 frame = zoom_yuv420(frame, WIDTH, HEIGHT, current_zoom)
+                # If an external request to restart HDMI arrived, perform it now
+                if hdmi_restart_event.is_set():
+                    hdmi_restart_event.clear()
+                    # Acquire lock to stop writes while we restart
+                    try:
+                        hdmi_write_lock.acquire()
+                        hdmi_paused.set()
+                        if proc_hdmi:
+                            try:
+                                if proc_hdmi.stdin:
+                                    try:
+                                        proc_hdmi.stdin.close()
+                                    except Exception:
+                                        pass
+                                proc_hdmi.terminate()
+                                proc_hdmi.wait(timeout=1)
+                            except Exception:
+                                try:
+                                    proc_hdmi.kill()
+                                except Exception:
+                                    pass
+                            proc_hdmi = None
+                        ensure_xdg_runtime_dir()
+                        with open("hdmi_log.txt", "ab") as f:
+                            try:
+                                proc_hdmi = subprocess.Popen(cmd_hdmi, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
+                                print("🔁 HDMI ffmpeg forzado reiniciado.")
+                                time.sleep(0.12)
+                            except Exception as e:
+                                print("❌ Falló forzar reinicio HDMI ffmpeg:", e)
+                                proc_hdmi = None
+                    except Exception as er:
+                        print("⚠️ Error forzando reinicio HDMI:", er)
+                    finally:
+                        hdmi_paused.clear()
+                        try:
+                            hdmi_write_lock.release()
+                        except Exception:
+                            pass
                 proc.stdin.write(memoryview(frame))
                 if hdmiState:
-                    proc_hdmi.stdin.write(memoryview(frame))
+                    try:
+                        if proc_hdmi is None or (hasattr(proc_hdmi, 'poll') and proc_hdmi.poll() is not None):
+                            with open("hdmi_log.txt", "ab") as f:
+                                try:
+                                    proc_hdmi = subprocess.Popen(cmd_hdmi, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
+                                    print("🔁 HDMI ffmpeg reiniciado.")
+                                except Exception as e:
+                                    print("❌ Falló reiniciar HDMI ffmpeg:", e)
+                                    proc_hdmi = None
+                        # Try to write to HDMI with brief lock to avoid race with restart
+                        wrote_hdmi = False
+                        try:
+                            if hdmi_write_lock.acquire(timeout=0.02):
+                                try:
+                                    if proc_hdmi and not hdmi_paused.is_set() and proc_hdmi.stdin:
+                                        try:
+                                            proc_hdmi.stdin.write(memoryview(frame))
+                                            wrote_hdmi = True
+                                        except BrokenPipeError:
+                                            print("⚠️ BrokenPipe al escribir HDMI, reiniciando proc_hdmi")
+                                            try:
+                                                proc_hdmi.terminate()
+                                            except Exception:
+                                                pass
+                                            proc_hdmi = None
+                                        except Exception as e:
+                                            print("⚠️ Error HDMI write:", e)
+                                            try:
+                                                proc_hdmi.terminate()
+                                            except Exception:
+                                                pass
+                                            proc_hdmi = None
+                                finally:
+                                    hdmi_write_lock.release()
+                        except Exception:
+                            # couldn't acquire lock fast - skip this HDMI frame to avoid blocking
+                            pass
+                    except Exception as e:
+                        print("⚠️ Error HDMI write/restart:", e)
+                        try:
+                            if proc_hdmi:
+                                proc_hdmi.terminate()
+                        except Exception:
+                            pass
+                        proc_hdmi = None
                 latest_frame = memoryview(frame)
             except Exception as e:
                 stop_error = True
                 print("Error en stream video:", e)
                 PrintImageDisplay("img/error_stream.png")
-                stop_blink()
+                _safe_stop_blink()
                 changeRunningCamera(False)
     except Exception as e:
         stop_error = True
         print("Error en hilo video:", e)
         PrintImageDisplay("img/error_stream.png")
-        stop_blink()
+        _safe_stop_blink()
         changeRunningCamera(False)
     finally:
         video_thread_running.clear()
@@ -271,7 +413,7 @@ def video_stream_thread():
         cv2.destroyAllWindows()
         print("🔴 Hilo de video stream parado.")
         PrintImageDisplay("img/error_stream.png")
-        stop_blink()
+        _safe_stop_blink()
         changeRunningCamera(False)
 
 last_restart_time = 0
@@ -423,7 +565,6 @@ def zoom():
             zoom_state['direction'] = 0
     return ('', 204)
     
-from gpio_control import start_blink, stop_blink
 
 def stream_watchdog():
     """Monitorea el proceso ffmpeg en `stream_proc` y reinicia usando
@@ -462,3 +603,14 @@ def start_stream_watchdog():
     watchdog_running.set()
     watchdog_thread = threading.Thread(target=stream_watchdog, daemon=True)
     watchdog_thread.start()
+
+
+def request_hdmi_restart():
+    """Public hook to request an HDMI restart from outside the thread.
+    The running capture loop will pick this up and restart the HDMI ffmpeg process.
+    """
+    try:
+        hdmi_restart_event.set()
+        return True
+    except Exception:
+        return False

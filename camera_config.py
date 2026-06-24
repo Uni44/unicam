@@ -9,6 +9,35 @@ import alsaaudio
 import subprocess
 import re
 
+
+def ensure_xdg_runtime_dir():
+    """Ensure XDG_RUNTIME_DIR is set to a valid directory so SDL/ffmpeg can open displays.
+    This is safe to call on systems without getuid (Windows) — it falls back to /tmp.
+    """
+    xr = os.environ.get("XDG_RUNTIME_DIR")
+    if xr and os.path.isdir(xr):
+        return
+    try:
+        uid = os.getuid()
+    except Exception:
+        uid = None
+    if uid:
+        candidate = f"/run/user/{uid}"
+        if os.path.isdir(candidate):
+            os.environ["XDG_RUNTIME_DIR"] = candidate
+            return
+    fallback = f"/tmp/xdg-runtime-{os.getpid()}"
+    try:
+        os.makedirs(fallback, exist_ok=True)
+        os.chmod(fallback, 0o700)
+        os.environ["XDG_RUNTIME_DIR"] = fallback
+    except Exception:
+        os.environ["XDG_RUNTIME_DIR"] = "/tmp"
+
+
+# Ensure XDG runtime dir early (import-time) so subprocesses inherit it
+ensure_xdg_runtime_dir()
+
 mixer = None
     
 CAMERA_RUNNING = False

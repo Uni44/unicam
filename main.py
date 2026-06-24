@@ -222,6 +222,36 @@ def api_mics():
         return jsonify([])
 
 
+@app.route('/api/hdmi/restart', methods=['POST'])
+def api_hdmi_restart():
+    restarted = []
+    errors = []
+    # Try to signal each module that may manage HDMI
+    try:
+        import video_stream
+        if hasattr(video_stream, 'request_hdmi_restart'):
+            video_stream.request_hdmi_restart()
+            restarted.append('video_stream')
+    except Exception as e:
+        errors.append(f"video_stream:{e}")
+    try:
+        import video_rec
+        if hasattr(video_rec, 'request_hdmi_restart'):
+            video_rec.request_hdmi_restart()
+            restarted.append('video_rec')
+    except Exception as e:
+        errors.append(f"video_rec:{e}")
+    try:
+        import foto_capture
+        if hasattr(foto_capture, 'request_hdmi_restart'):
+            foto_capture.request_hdmi_restart()
+            restarted.append('foto_capture')
+    except Exception as e:
+        errors.append(f"foto_capture:{e}")
+
+    return jsonify({'restarted': restarted, 'errors': errors})
+
+
 @app.route('/stop', methods=['POST'])
 def stop():
     # Import modules (they are already loaded but import safely)

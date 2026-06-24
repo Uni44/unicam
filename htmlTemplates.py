@@ -299,6 +299,7 @@ footer {
       <h2>Funciones</h2>
       <button class="btn" onclick="restartStream()">START</button>
       <button class="btn" onclick="stopStream()">STOP</button>
+      <button class="btn" onclick="restartHdmi()">HDMI Restart</button>
       <label style="display:inline-block;margin-left:10px; color:#ddd; font-size:13px;">
         <input type="checkbox" id="AutoReconnect" style="margin-right:6px;"> Auto Reconnect
       </label>
@@ -684,7 +685,7 @@ footer {
   </section>
 
   <footer>By Uni44</footer>
-  <footer>Version 2.2.0</footer>
+  <footer>Version 2.3.0</footer>
   <script src="{{ url_for('static', filename='chart.js') }}"></script>
   
 <script>
@@ -798,6 +799,15 @@ sliders2.forEach(slider => {
 
   // Utilidades Pi (requiere backend)
   function restartPi(){fetch('/restart',{method:'POST'});}
+  function restartHdmi(){
+    fetch('/api/hdmi/restart',{method:'POST'}).then(res=>{
+      if(res.ok){
+        console.log('Solicitud de reinicio HDMI enviada');
+      } else {
+        console.warn('Fallo al solicitar reinicio HDMI');
+      }
+    }).catch(err=>{console.error('Error reiniciando HDMI:', err)});
+  }
   function shutdownPi(){fetch('/shutdown',{method:'POST'});}
   function restartStream(){fetch('/start',{method:'POST'});}
   function stopStream(){fetch('/stop',{method:'POST'});}
