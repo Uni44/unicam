@@ -44,6 +44,8 @@ video_thread_running = threading.Event()
 rtsp_thread_running = threading.Event()
 
 stream_proc = None
+proc_hdmi = None
+proc_audio_hdmi = None  # Proceso para audio micrófono -> HDMI
 unclutter_proc = None
 watchdog_thread = None
 watchdog_running = threading.Event()
@@ -88,7 +90,7 @@ def _safe_stop_blink():
 def video_stream_thread():
     video_thread_running.set()
     print("📡 Hilo de video stream iniciado.")
-    global picam2, zoom_state, latest_frame, frame_lock, CONFIG, WIDTH, HEIGHT, TARGET_FPS, stream_proc, unclutter_proc
+    global picam2, zoom_state, latest_frame, frame_lock, CONFIG, WIDTH, HEIGHT, TARGET_FPS, stream_proc, unclutter_proc, proc_hdmi, proc_audio_hdmi
     
     CONFIG = load_config()
     mic_path = CONFIG.get("mic")
@@ -242,15 +244,17 @@ def video_stream_thread():
     global proc_hdmi
 
     if hdmiState:
-        os.environ["SDL_VIDEO_ALLOW_SCREENSAVER"] = "1"
-        os.environ["SDL_MOUSE_RELATIVE"] = "1"
-        os.environ["SDL_NOMOUSE"] = "1"
+        # Deshabilitar el mouse a nivel de X11
+        os.system('xset m 0 0 2>/dev/null || true')
+        # Ocultar con unclutter
         if unclutter_proc is not None and unclutter_proc.poll() is None:
             try:
                 unclutter_proc.terminate()
             except Exception:
                 pass
-        unclutter_proc = subprocess.Popen(['unclutter', '-idle', '0'])
+        unclutter_proc = subprocess.Popen(['unclutter', '-idle', '0', '-keystroke'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Mover el cursor fuera de pantalla
+        os.system('xdotool mousemove 9999 9999 2>/dev/null || true')
     res_hdmi = f"{WIDTH}x{HEIGHT}"
     if opcion_hdmi == "Mid":
         res_hdmi = "1280x720"
@@ -268,11 +272,10 @@ def video_stream_thread():
         '-s', f'{WIDTH}x{HEIGHT}',
         '-framerate', str(TARGET_FPS),
         '-i', '-', 
-        '-vf', f'scale={res_hdmi}:flags=neighbor', 
-        '-f', 'sdl',
-        '-window_fullscreen', '1',
+        '-vf', f'scale={res_hdmi}:flags=neighbor,format=rgb565le', 
+        '-f', 'fbdev',
         '-fps_mode', 'passthrough',
-        'SDL_Display'
+        '/dev/fb0'
     ]
     if hdmiState:
         # Abrir logs en append para preservar historial
@@ -284,6 +287,30 @@ def video_stream_thread():
             except Exception as e:
                 print("❌ No se pudo iniciar HDMI ffmpeg:", e)
                 proc_hdmi = None
+    
+    # Iniciar audio micrófono -> HDMI si está habilitado
+    if is_mic_enabled:
+        try:
+            # Detectar dispositivo HDMI (intentar primero card 0, luego card 1)
+            hdmi_device = "hw:0,0"  # HDMI 0 por defecto
+            mic_device = mic_path
+            
+            cmd_audio = [
+                'arecord', '-D', mic_device, '-t', 'wav', 
+                '-c', '2', '-r', '48000', '-f', 'S16_LE'
+            ]
+            cmd_audio_play = [
+                'aplay', '-D', hdmi_device, '-'
+            ]
+            
+            # Crear pipe: arecord | aplay
+            proc_audio_rec = subprocess.Popen(cmd_audio, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            proc_audio_hdmi = subprocess.Popen(cmd_audio_play, stdin=proc_audio_rec.stdout, 
+                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"🎙️ Audio capturado de {mic_device} → HDMI {hdmi_device}")
+        except Exception as e:
+            print(f"⚠️ No se pudo iniciar audio HDMI: {e}")
+            proc_audio_hdmi = None
 
     try:
         while video_thread_running.is_set() and not stop_error:
@@ -397,7 +424,7 @@ def video_stream_thread():
                 proc.stdin.close()
             except:
                 pass
-        for p in [proc, proc_hdmi]:
+        for p in [proc, proc_hdmi, proc_audio_hdmi]:
             if p:
                 try:
                     p.terminate()

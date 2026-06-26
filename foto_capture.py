@@ -83,10 +83,12 @@ def video_stream_thread():
     frame_count = 0
     stop_error = False
     
-    os.environ["SDL_VIDEO_ALLOW_SCREENSAVER"] = "1"
-    os.environ["SDL_MOUSE_RELATIVE"] = "1"
-    os.environ["SDL_NOMOUSE"] = "1"
-    subprocess.Popen(['unclutter', '-idle', '0'])
+    # Deshabilitar el mouse a nivel de X11
+    os.system('xset m 0 0 2>/dev/null || true')
+    # Ocultar con unclutter
+    subprocess.Popen(['unclutter', '-idle', '0', '-keystroke'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Mover el cursor fuera de pantalla
+    os.system('xdotool mousemove 9999 9999 2>/dev/null || true')
     hdmiState = True
     opcion_hdmi = CONFIG.get("hdmi")
     global proc_hdmi
@@ -109,11 +111,10 @@ def video_stream_thread():
         '-s', f'{WIDTH}x{HEIGHT}',
         '-framerate', str(TARGET_FPS),
         '-i', '-', 
-        '-vf', f'scale={res_hdmi}:flags=neighbor', 
-        '-f', 'sdl',
-        '-window_fullscreen', '1',
+        '-vf', f'scale={res_hdmi}:flags=neighbor,format=rgb565le', 
+        '-f', 'fbdev',
         '-fps_mode', 'passthrough',
-        'SDL_Display'
+        '/dev/fb0'
     ]
     if hdmiState:
         ensure_xdg_runtime_dir()

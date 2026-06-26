@@ -25,6 +25,7 @@ preview_thread = None
 video_thread_running = threading.Event()
 
 proc_hdmi = None
+proc_audio_hdmi = None  # Proceso para audio micrófono -> HDMI
 hdmi_restart_event = threading.Event()
 hdmi_write_lock = threading.Lock()
 hdmi_paused = threading.Event()
@@ -63,7 +64,7 @@ def video_stream_thread():
     video_thread_running.set()
     print("📡 Hilo de captura de rec iniciado.")
     
-    global picam2, zoom_state, latest_frame, frame_lock, recTake, proc_hdmi
+    global picam2, zoom_state, latest_frame, frame_lock, recTake, proc_hdmi, proc_audio_hdmi
     from gpio_control import start_blink, stop_blink
 
     CONFIG = load_config()
@@ -89,11 +90,12 @@ def video_stream_thread():
     
     stop_error = False
     recording = False
-    
-    os.environ["SDL_VIDEO_ALLOW_SCREENSAVER"] = "1"
-    os.environ["SDL_MOUSE_RELATIVE"] = "1"
-    os.environ["SDL_NOMOUSE"] = "1"
-    subprocess.Popen(['unclutter', '-idle', '0'])
+    # Deshabilitar el mouse a nivel de X11
+    os.system('xset m 0 0 2>/dev/null || true')
+    # Ocultar con unclutter
+    subprocess.Popen(['unclutter', '-idle', '0', '-keystroke'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Mover el cursor fuera de pantalla
+    os.system('xdotool mousemove 9999 9999 2>/dev/null || true')
     hdmiState = True
     opcion_hdmi = CONFIG.get("hdmi")
     if opcion_hdmi == "Off":
@@ -115,11 +117,10 @@ def video_stream_thread():
         '-s', f'{WIDTH}x{HEIGHT}',
         '-framerate', str(TARGET_FPS),
         '-i', '-', 
-        '-vf', f'scale={res_hdmi}:flags=neighbor', 
-        '-f', 'sdl',
-        '-window_fullscreen', '1',
+        '-vf', f'scale={res_hdmi}:flags=neighbor,format=rgb565le', 
+        '-f', 'fbdev',
         '-fps_mode', 'passthrough',
-        'SDL_Display'
+        '/dev/fb0'
     ]
     if hdmiState:
         # Abrir en modo append para no truncar logs previos
@@ -131,6 +132,30 @@ def video_stream_thread():
             except Exception as e:
                 print("❌ No se pudo iniciar HDMI ffmpeg:", e)
                 proc_hdmi = None
+    
+    # Iniciar audio micrófono -> HDMI si está habilitado
+    if is_mic_enabled:
+        try:
+            # Detectar dispositivo HDMI (intentar primero card 0, luego card 1)
+            hdmi_device = "hw:0,0"  # HDMI 0 por defecto
+            mic_device = mic_path
+            
+            cmd_audio = [
+                'arecord', '-D', mic_device, '-t', 'wav', 
+                '-c', '2', '-r', '48000', '-f', 'S16_LE'
+            ]
+            cmd_audio_play = [
+                'aplay', '-D', hdmi_device, '-'
+            ]
+            
+            # Crear pipe: arecord | aplay
+            proc_audio_rec = subprocess.Popen(cmd_audio, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            proc_audio_hdmi = subprocess.Popen(cmd_audio_play, stdin=proc_audio_rec.stdout, 
+                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"🎙️ Audio capturado de {mic_device} → HDMI {hdmi_device}")
+        except Exception as e:
+            print(f"⚠️ No se pudo iniciar audio HDMI: {e}")
+            proc_audio_hdmi = None
             
     try:
         while video_thread_running.is_set() and not stop_error:
@@ -314,6 +339,18 @@ def video_stream_thread():
         stop_blink()
         changeRunningCamera(False)
     finally:
+        # Limpiar proceso de audio
+        if proc_audio_hdmi:
+            try:
+                proc_audio_hdmi.terminate()
+                proc_audio_hdmi.wait(timeout=1)
+            except Exception:
+                try:
+                    proc_audio_hdmi.kill()
+                except Exception:
+                    pass
+            proc_audio_hdmi = None
+        
         video_thread_running.clear()
         picam2.close()
         cv2.destroyAllWindows()

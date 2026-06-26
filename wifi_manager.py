@@ -8,12 +8,41 @@ from flask import render_template_string, request
 from htmlTemplates import HTML_COF
 
 def wifi():
+    message = None
     if request.method == "POST":
         ssid = request.form['ssid']
         password = request.form['password']
-        configurar_wifi_nm(ssid, password)
-        return "Configuración guardada. Reinicia la Raspberry Pi."
-    return render_template_string(HTML_COF)
+        result = configurar_wifi_nm(ssid, password)
+        if result is True:
+            message = f"✅ Conectado a {ssid}. La Raspberry Pi intentará mantener esta conexión incluso sin Internet."
+        else:
+            message = f"❌ No se pudo conectar a {ssid}: {result}. Se ha activado el hotspot."
+    return render_template_string(HTML_COF, message=message)
+
+def get_wifi_device_status():
+    try:
+        result = subprocess.run(
+            ["nmcli", "-t", "-f", "DEVICE,STATE,CONNECTION", "device", "status"],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return None, None
+        for line in result.stdout.splitlines():
+            cols = line.strip().split(":")
+            if len(cols) >= 3 and cols[0] == "wlan0":
+                return cols[1], cols[2]
+    except Exception:
+        pass
+    return None, None
+
+
+def conectado_wifi():
+    state, connection = get_wifi_device_status()
+    if state == "connected" and connection and connection.lower() != "hotspot":
+        return True
+    return False
+
 
 def configurar_wifi_nm(ssid, password):
     print("📡 Preparando WiFi (NetworkManager)...")
@@ -50,7 +79,8 @@ def configurar_wifi_nm(ssid, password):
     if result.returncode != 0:
         print("❌ Error conectando WiFi:")
         print(result.stderr)
-        return False
+        levantar_hotspot()
+        return result.stderr.strip() or "Error conectando WiFi"
 
     # Autoconectar siempre
     subprocess.run([
@@ -103,12 +133,12 @@ def levantar_hotspot():
 def ComprobeWifi():
     print("Esperando a que la red se estabilice...")
     time.sleep(10)
-    if not tiene_internet():
-        print("❌ Sin Internet → Hotspot ON")
-        levantar_hotspot()
-    else:
-        print("✔ Internet OK → Hotspot OFF")
+    if conectado_wifi():
+        print("✔ WiFi conectado → Hotspot OFF")
         apagar_hotspot()
+    else:
+        print("❌ WiFi desconectado → Hotspot ON")
+        levantar_hotspot()
         
 wifi_thread = threading.Thread(target=ComprobeWifi, daemon=True)
 wifi_thread.start()

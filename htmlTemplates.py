@@ -685,7 +685,7 @@ footer {
   </section>
 
   <footer>By Uni44</footer>
-  <footer>Version 2.3.0</footer>
+  <footer>Version 2.3.1</footer>
   <script src="{{ url_for('static', filename='chart.js') }}"></script>
   
 <script>
@@ -1155,9 +1155,14 @@ const selects = [
 '''
 
 HTML_COF = '''
+{% if message %}
+  <div style="margin-bottom: 12px; padding: 10px; border: 1px solid #ccc; background: #f8f8f8;">
+    {{ message }}
+  </div>
+{% endif %}
 <form method="POST">
   SSID: <input name="ssid"><br>
   Password: <input name="password" type="password"><br>
-  <input type="submit">
+  <input type="submit" value="Guardar WiFi">
 </form>
 '''
