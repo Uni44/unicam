@@ -134,7 +134,7 @@ def video_stream_thread():
                 proc_hdmi = None
     
     # Iniciar audio micrófono -> HDMI si está habilitado
-    if is_mic_enabled:
+    #if is_mic_enabled:
         # Audio HDMI desactivado para evitar conflicto con FFmpeg en el mismo dispositivo
         # try:
         #     # Detectar dispositivo HDMI (intentar primero card 0, luego card 1)
