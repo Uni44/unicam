@@ -135,27 +135,28 @@ def video_stream_thread():
     
     # Iniciar audio micrófono -> HDMI si está habilitado
     if is_mic_enabled:
-        try:
-            # Detectar dispositivo HDMI (intentar primero card 0, luego card 1)
-            hdmi_device = "hw:0,0"  # HDMI 0 por defecto
-            mic_device = mic_path
-            
-            cmd_audio = [
-                'arecord', '-D', mic_device, '-t', 'wav', 
-                '-c', '2', '-r', '48000', '-f', 'S16_LE'
-            ]
-            cmd_audio_play = [
-                'aplay', '-D', hdmi_device, '-'
-            ]
-            
-            # Crear pipe: arecord | aplay
-            proc_audio_rec = subprocess.Popen(cmd_audio, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            proc_audio_hdmi = subprocess.Popen(cmd_audio_play, stdin=proc_audio_rec.stdout, 
-                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print(f"🎙️ Audio capturado de {mic_device} → HDMI {hdmi_device}")
-        except Exception as e:
-            print(f"⚠️ No se pudo iniciar audio HDMI: {e}")
-            proc_audio_hdmi = None
+        # Audio HDMI desactivado para evitar conflicto con FFmpeg en el mismo dispositivo
+        # try:
+        #     # Detectar dispositivo HDMI (intentar primero card 0, luego card 1)
+        #     hdmi_device = "hw:0,0"  # HDMI 0 por defecto
+        #     mic_device = mic_path
+        #     
+        #     cmd_audio = [
+        #         'arecord', '-D', mic_device, '-t', 'wav', 
+        #         '-c', '2', '-r', '48000', '-f', 'S16_LE'
+        #     ]
+        #     cmd_audio_play = [
+        #         'aplay', '-D', hdmi_device, '-'
+        #     ]
+        #     
+        #     # Crear pipe: arecord | aplay
+        #     proc_audio_rec = subprocess.Popen(cmd_audio, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        #     proc_audio_hdmi = subprocess.Popen(cmd_audio_play, stdin=proc_audio_rec.stdout, 
+        #                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        #     print(f"🎙️ Audio capturado de {mic_device} → HDMI {hdmi_device}")
+        # except Exception as e:
+        #     print(f"⚠️ No se pudo iniciar audio HDMI: {e}")
+        #     proc_audio_hdmi = None
             
     try:
         while video_thread_running.is_set() and not stop_error:
@@ -339,17 +340,17 @@ def video_stream_thread():
         stop_blink()
         changeRunningCamera(False)
     finally:
-        # Limpiar proceso de audio
-        if proc_audio_hdmi:
-            try:
-                proc_audio_hdmi.terminate()
-                proc_audio_hdmi.wait(timeout=1)
-            except Exception:
-                try:
-                    proc_audio_hdmi.kill()
-                except Exception:
-                    pass
-            proc_audio_hdmi = None
+        # Limpiar proceso de audio (desactivado)
+        # if proc_audio_hdmi:
+        #     try:
+        #         proc_audio_hdmi.terminate()
+        #         proc_audio_hdmi.wait(timeout=1)
+        #     except Exception:
+        #         try:
+        #             proc_audio_hdmi.kill()
+        #         except Exception:
+        #             pass
+        #     proc_audio_hdmi = None
         
         video_thread_running.clear()
         picam2.close()
