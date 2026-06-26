@@ -1,8 +1,10 @@
 import threading
 import time
 import subprocess
+import logging
 from flask import request
 from picamera2 import Picamera2
+from picamera2.previews import DrmPreview
 import cv2
 from camera_config import WIDTH, HEIGHT, TARGET_FPS, IPDestino, aplicar_camara_config, generar_sdp, CONFIG, picam2, changeRunningCamera, load_config
 from threading import Thread
@@ -17,6 +19,8 @@ from video_stream import (
     zoom_lock, zoom_state, zoom_var, zoom_loop, zoom, zoom_yuv420
 )
 import os
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_xdg_runtime_dir():
@@ -45,11 +49,6 @@ preview_thread = None
 
 video_thread_running = threading.Event()
 
-proc_hdmi = None
-hdmi_restart_event = threading.Event()
-hdmi_write_lock = threading.Lock()
-hdmi_paused = threading.Event()
-
 latest_frame = None  # va a contener siempre el último frame
 frame_lock = threading.Lock()
 
@@ -61,7 +60,7 @@ os.makedirs(carpeta, exist_ok=True)
 
 def video_stream_thread():
     video_thread_running.set()
-    print("📡 Hilo de captura de foto iniciado.")
+    logger.info("📡 Hilo de captura de foto iniciado.")
     
     global picam2, zoom_state, latest_frame, frame_lock, fotoTake
     from gpio_control import start_blink, stop_blink
@@ -74,6 +73,17 @@ def video_stream_thread():
         buffer_count=2
     )
     picam2.configure(config)
+    
+    # Iniciar DrmPreview después de picam2.start()
+    opcion_hdmi = CONFIG.get("hdmi")
+    if opcion_hdmi != "Off":
+        time.sleep(0.5)  # Esperar a que se estabilice
+        try:
+            picam2.start_preview(DrmPreview(x=0, y=0, width=1920, height=1080))
+            logger.info("✅ DrmPreview iniciado para HDMI (1920x1080)")
+        except Exception as e:
+            logger.error(f"⚠️ No se pudo iniciar DrmPreview: {e}")
+
     picam2.start()
     aplicar_camara_config(picam2, True)
 
@@ -83,91 +93,11 @@ def video_stream_thread():
     frame_count = 0
     stop_error = False
     
-    # Deshabilitar el mouse a nivel de X11
-    os.system('xset m 0 0 2>/dev/null || true')
-    # Ocultar con unclutter
-    subprocess.Popen(['unclutter', '-idle', '0', '-keystroke'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Mover el cursor fuera de pantalla
-    os.system('xdotool mousemove 9999 9999 2>/dev/null || true')
-    hdmiState = True
-    opcion_hdmi = CONFIG.get("hdmi")
-    global proc_hdmi
-    if opcion_hdmi == "Off":
-        hdmiState = False
-    res_hdmi = f"{WIDTH}x{HEIGHT}"
-    if opcion_hdmi == "Mid":
-        res_hdmi = "1280x720"
-    elif opcion_hdmi == "Low": # El tercero
-        res_hdmi = "640x360"
-    cmd_hdmi = [
-        'ffmpeg',
-        '-hide_banner', '-loglevel', 'error', '-nostats',
-        '-fflags', 'nobuffer+genpts',
-        '-flags', 'low_delay',
-        '-use_wallclock_as_timestamps', '1',
-        '-thread_queue_size', '4096',
-        '-f', 'rawvideo',
-        '-pix_fmt', 'yuv420p',
-        '-s', f'{WIDTH}x{HEIGHT}',
-        '-framerate', str(TARGET_FPS),
-        '-i', '-', 
-        '-vf', f'scale={res_hdmi}:flags=neighbor,format=rgb565le', 
-        '-f', 'fbdev',
-        '-fps_mode', 'passthrough',
-        '/dev/fb0'
-    ]
-    if hdmiState:
-        ensure_xdg_runtime_dir()
-        with open("hdmi_log.txt", "ab") as f:
-            try:
-                proc_hdmi = subprocess.Popen(cmd_hdmi, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
-                time.sleep(0.12)
-            except Exception as e:
-                print("❌ No se pudo iniciar HDMI ffmpeg:", e)
-                proc_hdmi = None
-    
     try:
         while video_thread_running.is_set() and not stop_error:
             try:
                 frame = picam2.capture_array("main")
-                # Handle external HDMI restart requests
-                if hdmi_restart_event.is_set():
-                    hdmi_restart_event.clear()
-                    try:
-                        hdmi_write_lock.acquire()
-                        hdmi_paused.set()
-                        if proc_hdmi:
-                            try:
-                                if proc_hdmi.stdin:
-                                    try:
-                                        proc_hdmi.stdin.close()
-                                    except Exception:
-                                        pass
-                                proc_hdmi.terminate()
-                                proc_hdmi.wait(timeout=1)
-                            except Exception:
-                                try:
-                                    proc_hdmi.kill()
-                                except Exception:
-                                    pass
-                            proc_hdmi = None
-                        ensure_xdg_runtime_dir()
-                        with open("hdmi_log.txt", "ab") as f:
-                            try:
-                                proc_hdmi = subprocess.Popen(cmd_hdmi, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
-                                print("🔁 HDMI ffmpeg forzado reiniciado (foto).")
-                                time.sleep(0.12)
-                            except Exception as e:
-                                print("❌ Falló forzar reinicio HDMI ffmpeg (foto):", e)
-                                proc_hdmi = None
-                    except Exception as er:
-                        print("⚠️ Error forzando reinicio HDMI (foto):", er)
-                    finally:
-                        hdmi_paused.clear()
-                        try:
-                            hdmi_write_lock.release()
-                        except Exception:
-                            pass
+                # DrmPreview maneja la salida HDMI automaticamente
                 if fotoTake:
                     print("fototate")
                     start_blink()
@@ -180,34 +110,6 @@ def video_stream_thread():
                         time.sleep(0.2)
                     stop_blink()
                     fotoTake = False
-                # Try to write to HDMI with brief lock to avoid race with restart
-                try:
-                    if hdmi_write_lock.acquire(timeout=0.02):
-                        try:
-                            if hdmiState and proc_hdmi and not hdmi_paused.is_set() and proc_hdmi.stdin:
-                                try:
-                                    proc_hdmi.stdin.write(memoryview(frame))
-                                except BrokenPipeError:
-                                    print("⚠️ BrokenPipe al escribir HDMI (foto), reiniciando proc_hdmi")
-                                    try:
-                                        proc_hdmi.terminate()
-                                    except Exception:
-                                        pass
-                                    proc_hdmi = None
-                                except Exception as e:
-                                    stop_error = True
-                                    print("❌ Error escribiendo frame a HDMI:", e)
-                                    try:
-                                        if proc_hdmi:
-                                            proc_hdmi.terminate()
-                                    except Exception:
-                                        pass
-                                    proc_hdmi = None
-                        finally:
-                            hdmi_write_lock.release()
-                except Exception:
-                    # couldn't acquire lock fast - skip writing this frame
-                    pass
                 latest_frame = memoryview(frame)
             except Exception as e:
                 stop_error = True
@@ -225,6 +127,7 @@ def video_stream_thread():
         video_thread_running.clear()
         picam2.close()
         cv2.destroyAllWindows()
+        # DrmPreview se cierra automaticamente con picam2
         print("🔴 Hilo de captura de foto parado.")
         PrintImageDisplay("img/error_stream.png")
         stop_blink()
@@ -255,14 +158,6 @@ def restart_foto_thread():
     preview_thread = Thread(target=lcd_preview_thread)
     preview_thread.start()
 
-
-def request_hdmi_restart():
-    """Request the foto capture thread to restart its HDMI ffmpeg process."""
-    try:
-        hdmi_restart_event.set()
-        return True
-    except Exception:
-        return False
 
 def capture_foto():
     global fotoTake, last_restart_time
