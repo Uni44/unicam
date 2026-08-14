@@ -281,8 +281,10 @@ footer {
       <div class="status-bar"><div id="ramBar" class="status-fill"></div></div>
       <div class="status-text">Temp: <span id="tempText">0°C</span></div>
       <div class="status-bar"><div id="tempBar" class="status-fill"></div></div>
-      <div class="status-text">Disk: <span id="diskText">0%</span></div>
+      <div class="status-text">Sistema: <span id="diskText">0%</span></div>
       <div class="status-bar"><div id="diskBar" class="status-fill"></div></div>
+      <div class="status-text">Guardado: <span id="storageDiskText">0%</span></div>
+      <div class="status-bar"><div id="storageDiskBar" class="status-fill"></div></div>
 	  <div class="status-text">BAT: <span id="batText">0%</span></div>
 	  <div class="status-bar"><div id="batBar" class="status-fill"></div></div>
 	  <div class="status-text">Vol: <span id="volText">0.0</span></div>
@@ -299,6 +301,7 @@ footer {
       <h2>Funciones</h2>
       <button class="btn" onclick="restartStream()">START</button>
       <button class="btn" onclick="stopStream()">STOP</button>
+      <button class="btn" onclick="restartHdmi()">REINICIAR HDMI</button>
       <label style="display:inline-block;margin-left:10px; color:#ddd; font-size:13px;">
         <input type="checkbox" id="AutoReconnect" style="margin-right:6px;"> Auto Reconnect
       </label>
@@ -306,8 +309,8 @@ footer {
       <button class="btn" id="zoomOut">ZOOM -</button>
 	  <h2> </h2>
       <button class="btn" onclick="window.location.href='/files'">Files</button>
-	  <button class="btn" onclick="window.location.href='/browse/home/pi/Unicam/fotos'">Pictures</button>
-	  <button class="btn" onclick="window.location.href='/browse/home/pi/Unicam/videos'">Videos</button>
+	  <button class="btn" id="openPicturesBtn">Pictures</button>
+	  <button class="btn" id="openVideosBtn">Videos</button>
 	  <h2> </h2>
 	  <button class="btn" onclick="restartPi()">Restart</button>
       <button class="btn" onclick="shutdownPi()">Shutdown</button>
@@ -442,7 +445,31 @@ footer {
     </select>
     <div style="font-size:12px;color:#aaa;margin-top:6px;">Selecciona el mic o "Disabled" para desactivar (se usa '!' para ignorar).</div>
   </div>
-	<br><br>
+  <br>
+  <div class="setting">
+    <label>Destino de guardado:</label>
+    <select id="storage_mode">
+      <option value="default">Predeterminado</option>
+      <option value="custom">Carpeta personalizada</option>
+      <option value="usb">USB automática</option>
+    </select>
+  </div>
+  <br>
+  <div class="setting">
+    <label>Carpeta personalizada:</label>
+    <input type="text" id="storage_path" placeholder="Ej: /home/pi/Unicam/media">
+  </div>
+  <br>
+  <div class="setting" id="storage_usb_box" style="display:none;">
+    <label>Elegí la unidad USB:</label>
+    <select id="storage_usb_select"></select>
+    <input type="hidden" id="storage_usb_path" value="">
+  </div>
+  <br>
+  <div class="setting" id="storage_usb_help" style="display:none; font-size:12px; color:#aaa;">
+    Elegí una carpeta de /media que corresponda a tu USB. Se excluye la carpeta test.
+  </div>
+  <br><br>
 	<button id="settings-btn-1">Send</button>
 </div>
 </div>
@@ -684,7 +711,7 @@ footer {
   </section>
 
   <footer>By Uni44</footer>
-  <footer>Version 2.4.0</footer>
+  <footer>Version 3.0.0</footer>
   <script src="{{ url_for('static', filename='chart.js') }}"></script>
   
 <script>
@@ -751,6 +778,8 @@ sliders2.forEach(slider => {
 	  document.getElementById('tempBar').style.width = data.temp+'%';
 	  document.getElementById('diskText').textContent = data.disk+'%';
 	  document.getElementById('diskBar').style.width = data.disk+'%';
+	  document.getElementById('storageDiskText').textContent = (data.storage_disk || 0)+'%';
+	  document.getElementById('storageDiskBar').style.width = (data.storage_disk || 0)+'%';
 	  document.getElementById('cpu_freqText').textContent = data.cpu_freq;
       document.getElementById('batText').textContent = data.ups.battery_percent+'%';
 	  document.getElementById('batBar').style.width = data.ups.battery_percent+'%';
@@ -801,6 +830,7 @@ sliders2.forEach(slider => {
   function shutdownPi(){fetch('/shutdown',{method:'POST'});}
   function restartStream(){fetch('/start',{method:'POST'});}
   function stopStream(){fetch('/stop',{method:'POST'});}
+  function restartHdmi(){fetch('/api/hdmi/restart',{method:'POST'});}
 	
 	const ctx = document.getElementById('unicamChart').getContext('2d');
 	const unicamChart = new Chart(ctx, {
@@ -949,7 +979,8 @@ const selects = [
   "bitrate",
   "preset",
   "protocolo_stream",
-  "hdmi"
+  "hdmi",
+  "storage_mode"
 ];
 	
 	// ================================
@@ -992,7 +1023,21 @@ const selects = [
 		  document.getElementById("puertoDestinoSRT").value = config["puertoDestinoSRT"];
 		  document.getElementById("extraDataSRT").value = config["extraDataSRT"];
 		  document.getElementById("mic").value = config["mic"];
+		  document.getElementById("storage_mode").value = config["storage_mode"] || "default";
+		  document.getElementById("storage_path").value = config["storage_path"] || "";
+		  const storageUsbInput = document.getElementById("storage_usb_path");
+		  if (storageUsbInput) {
+		    storageUsbInput.value = config["storage_usb_path"] || "";
+		  }
+		  const storageUsbSelect = document.getElementById("storage_usb_select");
+		  if (storageUsbSelect && storageUsbInput && storageUsbInput.value) {
+		    const hasValue = Array.from(storageUsbSelect.options).some(opt => opt.value === storageUsbInput.value);
+		    if (hasValue) {
+		      storageUsbSelect.value = storageUsbInput.value;
+		    }
+		  }
 		  actualizarSlidersAuto();
+		  actualizarVisibilidadAlmacenamiento();
 		});
 	}
 	
@@ -1029,10 +1074,62 @@ const selects = [
       }
     }
 
-    // Ejecutar al inicio: primero traer mics, luego cargar configuración
+    async function fetchUsbFolders() {
+      try {
+        const res = await fetch('/api/storage-targets');
+        if (!res.ok) return;
+        const data = await res.json();
+        const sel = document.getElementById('storage_usb_select');
+        if (!sel) return;
+        sel.innerHTML = '';
+        const folders = (data.targets || []).filter(path => !path.toLowerCase().includes('/test') && !path.toLowerCase().includes('test'));
+        folders.forEach(path => {
+          const opt = new Option(path, path);
+          sel.add(opt);
+        });
+        const currentPath = document.getElementById('storage_usb_path').value;
+        if (folders.length) {
+          if (currentPath && folders.includes(currentPath)) {
+            sel.value = currentPath;
+          } else {
+            sel.value = folders[0];
+          }
+          document.getElementById('storage_usb_path').value = sel.value;
+        }
+      } catch (e) {
+        console.error('Error fetching usb folders:', e);
+      }
+    }
+
+    function actualizarVisibilidadAlmacenamiento() {
+      const mode = document.getElementById('storage_mode').value;
+      const pathBox = document.getElementById('storage_path');
+      const usbBox = document.getElementById('storage_usb_box');
+      const helpBox = document.getElementById('storage_usb_help');
+      const showCustom = mode === 'custom';
+      const showUsb = mode === 'usb';
+      pathBox.parentElement.style.display = showCustom ? 'block' : 'none';
+      usbBox.style.display = showUsb ? 'block' : 'none';
+      helpBox.style.display = showUsb ? 'block' : 'none';
+    }
+
+    document.getElementById('storage_mode').addEventListener('change', () => {
+      actualizarVisibilidadAlmacenamiento();
+      if (document.getElementById('storage_mode').value === 'usb') {
+        fetchUsbFolders();
+      }
+    });
+
+    document.getElementById('storage_usb_select').addEventListener('change', () => {
+      document.getElementById('storage_usb_path').value = document.getElementById('storage_usb_select').value;
+    });
+
+    // Ejecutar al inicio: primero traer mics y luego cargar configuración
     window.onload = async function() {
       await fetchMics();
+      await fetchUsbFolders();
       cargarConfiguracion();
+      actualizarVisibilidadAlmacenamiento();
     };
 	//setInterval(cargarConfiguracion, 60000);
 
@@ -1068,6 +1165,12 @@ const selects = [
 		config["puertoDestinoSRT"] = document.getElementById("puertoDestinoSRT").value;
 		config["extraDataSRT"] = document.getElementById("extraDataSRT").value;
 		config["mic"] = document.getElementById("mic").value;
+		config["storage_mode"] = document.getElementById("storage_mode").value;
+		config["storage_path"] = document.getElementById("storage_path").value;
+		const storageUsbInput = document.getElementById("storage_usb_path");
+		if (storageUsbInput) {
+		  config["storage_usb_path"] = storageUsbInput.value;
+		}
 		
 		// enviar al backend
 		fetch('/api/camera-config', {
@@ -1111,6 +1214,28 @@ const selects = [
 	document.getElementById("settings-btn-2").addEventListener("click", saveConfig);
 	document.getElementById("settings-btn-3").addEventListener("click", forceReloadConfig);
 	
+	async function abrirCarpetaDeGuardado(tipo) {
+	  try {
+	    const res = await fetch('/api/camera-config');
+	    if (!res.ok) return;
+	    const config = await res.json();
+	    const mode = (config.storage_mode || 'default').toLowerCase();
+	    let basePath = '';
+	    if (mode === 'custom') {
+	      basePath = config.storage_path || '';
+	    } else if (mode === 'usb') {
+	      basePath = config.storage_usb_path || config.storage_path || '';
+	    }
+	    if (!basePath) {
+	      basePath = '/home/pi/Unicam';
+	    }
+	    const url = `/browse/${encodeURIComponent(basePath.replace(/^\/+/, ''))}`;
+	    window.location.href = url;
+	  } catch (err) {
+	    console.error('Error abriendo carpeta:', err);
+	  }
+	}
+
 	function enviarZoom(direccion) {
             const formData = new FormData();
             formData.append('direction', direccion);
@@ -1138,6 +1263,8 @@ const selects = [
 
         configurarBoton('zoomIn', 'in');
         configurarBoton('zoomOut', 'out');
+		document.getElementById('openPicturesBtn').addEventListener('click', () => abrirCarpetaDeGuardado('fotos'));
+		document.getElementById('openVideosBtn').addEventListener('click', () => abrirCarpetaDeGuardado('videos'));
 	</script>
 </div>
 </body>

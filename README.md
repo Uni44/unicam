@@ -1,167 +1,221 @@
-# 🎥 Unicam — V2.4.0
+# 🎥 Unicam — V3.0.0
 
-**Unicam** es un sistema de cámara digital completo escrito en **Python**, diseñado específicamente para **Raspberry Pi 5** y módulos de cámara compatibles.
-El proyecto permite capturar fotos, grabar video y transmitir en vivo mediante RTSP/SRT, combinando hardware económico con un workflow profesional.
+**Unicam** es un sistema de cámara digital basado en **Raspberry Pi 5**, desarrollado en **Python** para fotografía, grabación y streaming profesional utilizando hardware de bajo costo.
 
----
-
-## 🎥 Unicam Pro V2
+Permite capturar fotografías, grabar video, transmitir en vivo mediante **RTSP / SRT / RTMP** y comunicarse con la cámara mediante **intercom**, todo controlado desde una **interfaz web integrada**.
 
 ![foto7](img/foto7.jpg)
 ![foto6](img/foto6.png)
 ![foto5](img/foto5.jpg)
 
-## ✨ Características principales
+---
 
-### 🔵 Modos de funcionamiento
-- **📷 Foto:**  
-  - Captura **10 fotos** consecutivas a la **máxima resolución disponible** del sensor.  
-  - Soporte para **HDR** cuando el sensor lo permita.
-  - Soporte para **reducción de ruido** cuando el sensor lo permita.
-  - Guardado en formato **YUV420 → JPG**.
+# ✨ Características principales
 
-- **🎬 Grabación:**  
-  - Grabación fluida en **2K 30fps** sin pérdida.  
-  - Soporte para **HDR** cuando el sensor lo permita.
-  - Soporte para **reducción de ruido** cuando el sensor lo permita.
-  - Pipeline optimizado para la Pi 5.
-  - Guardado en formato **YUV420 → MP4**.
-  - Soporte para **microfonos**.
+## 📷 Modos de funcionamiento
 
-- **📡 Streaming:**  
-  - Transmisión de video a servidores remotos mediante **RTSP** o **SRT**.  
-  - Alta Calidad optimizada para baja latencia.
-  - Pensado para streaming, conexión inalámbrica **local** incluso **4G** o **5G**.
-  - Soporte para **microfonos**.
+### Foto
+
+* Captura en alta resolución según el sensor disponible.
+* Modo ráfaga para múltiples fotografías consecutivas.
+* Conversión y guardado en **YUV420 → JPG**.
+
+### Grabación
+
+* Grabación fluida hasta **1920×1080 a 30 FPS**.
+* Pipeline optimizado para Raspberry Pi 5.
+* Codificación **H.264**.
+* Grabación de audio mediante micrófono USB compatible con ALSA.
+
+### Streaming
+
+Compatible con:
+
+* RTSP
+* SRT
+* RTMP (opcional)
+
+Características:
+
+* Baja latencia.
+* Bitrate configurable.
+* Optimizado para redes locales, Ethernet, Wi-Fi y conexiones móviles (4G/5G).
+
+### Óptica y enfoque
+
+* Lente motorizado con control de foco y zoom físico.
+* Autofoco continuo con seguimiento de nitidez.
+* Ajuste de zoom digital y enfoque parabólico para mantener la imagen nítida al cambiar magnificación.
+* Protección del encoder con alertas cuando la resolución, FPS o preset superan límites seguros.
 
 ---
 
-## 🖥️ Panel de Control Web
-Incluye un servidor web integrado que permite:
+# 🌐 Panel de control web
 
-- Monitorear el sensor en tiempo real.
-- Cambiar configuraciones del sensor.
-- Ajustar calidad y parámetros del stream.
-- Configurar WiFi.
-- Crea un **hotspot WiFi automáticamente** si no se detecta internet.
-- Ver estado del sistema, CPU, temperatura y modos activos. 
+Toda la cámara puede administrarse desde un navegador.
 
-Perfecto para controlar la cámara desde un teléfono o una laptop sin cables.
+Funciones disponibles:
 
-### 📶 Hotspot WiFi
-Si la Pi no tiene conexión a internet, crea automáticamente un hotspot:
-
-| Parámetro | Valor |
-|-----------|-------|
-| **SSID** | `UnicamHotspot` |
-| **Contraseña** | `unicam2024` |
-| **IP del servidor** | `192.168.4.1:8044` |
-| **URL** | `http://192.168.4.1:8044` |
-
-**Cómo conectarse:**
-1. En tu teléfono/laptop, busca la red WiFi `Unicam`
-2. Conecta con la contraseña `1234567890`
-3. Abre el navegador y ve a `http://[IP LOCAL DE LA UNICAM]:8044`
-4. Desde aquí puedes configurar la WiFi real o usar la cámara directamente
+* Vista previa en vivo.
+* Inicio y detención de grabación.
+* Captura de fotografías.
+* Configuración del sensor.
+* Ajustes de calidad de imagen y video.
+* Configuración de streaming.
+* Gestión de redes Wi-Fi.
+* Descarga de fotografías y grabaciones.
+* Monitorización del sistema (CPU, RAM, temperatura y almacenamiento).
+* Monitorización del nivel del micrófono en tiempo real.
+* Alertas visuales de límite del codificador para prevenir sobrecarga de resolución/FPS.
+* Intercom para enviar audio desde el navegador hacia la cámara, con TTS y mensajes hablados sintetizados.
+* Controles físicos con botones y LEDs para zoom, foco, Start/Stop y estados operativos.
+* Overlay HDMI con información clave de la cámara para revisión rápida.
+* Zoom digital progresivo cuando el zoom físico llega al límite.
 
 ---
 
-## 📺 Interfaz en Pantalla (LCD TFT)
-Soporte integrado para:
+# 🎤 Audio
 
-- Pantalla **480×320 TFT** en modo landscape.
-- Soporte para **táctil**.  
-- Vista previa de cámara en vivo.
-- HUD con modo, FPS, nivel de batería (proximamente).
-- Posibilidad de cambiar modos manuales o automaticos funciones desde la pantalla.
+Características:
 
----
-
-## 🧩 Hardware compatible
-
-- 🟠 **Raspberry Pi 5 (recomendado — probado en 2GB)**  
-- 🟣 **Módulos de cámara CSI**  
-  - Probado con **Sony IMX708**, pero debería funcionar con cualquier sensor moderno compatible  
-- 🔌 Pantalla TFT 480x320 con táctil  
-- 🔋 Botones físicos opcionales (grabación, zoom, menú, etc.)  
-- 💡 GPIO para LED de grabación (implementado pero opcional)
-- 🎤 Micrófono USB compatible con ALSA (p. ej., Rode, Shure, Audio-Technica)
+* Micrófono USB compatible con ALSA.
+* Codec AAC.
+* Frecuencia de muestreo de 48 kHz.
+* Mono o estéreo.
+* Bitrate de 96 a 128 kbps.
+* Monitor de nivel de audio en tiempo real.
+* Mejora de calidad de audio con ajuste de ganancia y mejor rendimiento para micrófonos USB.
+* Sistema de intercom para comunicación unidireccional con la cámara mediante audio en tiempo real y TTS.
+* Reproducción de mensajes hablados sintetizados para notificaciones, avisos y control por voz.
 
 ---
 
-## 📊 Especificaciones técnicas
+# 📡 Conectividad
 
-### Resoluciones y FPS soportados
-| Modo | Resolución | FPS | Codec | Bitrate |
-|------|-----------|-----|-------|---------|
-| **Foto** | Hasta 4K (sensor-dependiente) | - | YUV420 → JPG | - |
-| **Grabación** | 1920×1080 (2K) | 30 | H.264 (x264) | 16Mbps |
-| **Stream RTSP** | 1920×1080 (2K) | 30 | H.264 (x264) | 16Mbps |
-| **Stream SRT** | 1920×1080 (2K) | 30 | MPEG-TS | 16Mbps |
+## Hotspot automático
 
-### Audio
-- **Entrada:** Micrófono USB (ALSA `plughw:2,0` por defecto)
-- **Frecuencia de muestreo:** 48 kHz
-- **Canales:** 1 (mono) o 2 (estéreo, según dispositivo)
-- **Codec:** AAC
-- **Bitrate:** 96-128 kbps
+Cuando no existe una red Wi-Fi disponible, Unicam crea automáticamente un punto de acceso.
 
-### Parámetros de video (ajustables)
-- **Brillo (Brightness):** -100 a 100
-- **Contraste (Contrast):** 0.1 a 10
-- **Saturación (Saturation):** 0.1 a 10
-- **Nitidez (Sharpness):** -10 a 10
-- **Temperatura de color:** 1000-12000K
-- **Ganancia analógica:** 1 a 16
-- **HDR:** Modo 0 (desactivado) a 3 (máximo)
-- **Reducción de ruido:** Modos 0-4
+**Configuración predeterminada**
 
-### Puertos utilizados
-- **8044:** Servidor web (Panel de Control)
-- **8554:** RTSP (streaming)
-- **8890:** SRT (streaming)
-- **5353:** mDNS (local discovery)
+* **SSID:** `Unicam`
+* **Contraseña:** `1234567890`
+* **Dirección IP:** `192.168.0.20`
+* **Panel web:** `http://192.168.0.20:8044`
+
+Esto permite utilizar y configurar la cámara sin necesidad de un router.
 
 ---
 
-## 🚀 Instalación
+# 🔌 Hardware compatible
 
-### 1. Clonar el repositorio
+* Raspberry Pi 5 (recomendado).
+* Cámaras CSI compatibles (probado con Sony IMX708).
+* Micrófonos USB compatibles con ALSA.
+* Altavoces USB para función de intercom.
+* Lente motorizado con zoom y enfoque automáticos o manuales.
+* Autofoco continuo para mantener la imagen nítida durante la grabación o el streaming.
+* Iluminación externa.
+* Panel de botones físicos con 8 botones y 4 LEDs para zoom, foco, Start/Stop y estado.
+* Overlay HDMI con información en tiempo real de la cámara.
+* Zoom digital automático cuando el zoom físico alcanza el límite.
+* Salida HDMI.
+
+---
+
+# 🔋 Alimentación
+
+* Batería interna integrada.
+* Autonomía aproximada de **30 minutos**, dependiendo del uso.
+
+El consumo varía según:
+
+* Grabación.
+* Streaming.
+* Uso de red.
+* Procesamiento del sensor.
+* Dispositivos USB conectados.
+
+---
+
+# 📊 Especificaciones técnicas
+
+| Función    | Resolución                            | FPS | Codec | Bitrate      |
+| ---------- | ------------------------------------- | --- | ----- | ------------ |
+| Fotografía | Hasta la resolución máxima del sensor | —   | JPG   | —            |
+| Grabación  | 1920×1080                             | 30  | H.264 | ~16 Mbps     |
+| RTSP       | 1920×1080                             | 30  | H.264 | ~16 Mbps     |
+| SRT        | 1920×1080                             | 30  | H.264 | ~16 Mbps     |
+| RTMP       | 1920×1080                             | 30  | H.264 | Configurable |
+
+---
+
+# ⚙️ Parámetros ajustables
+
+Sensor:
+
+* Brillo
+* Contraste
+* Saturación
+* Nitidez
+* Ganancia
+* Temperatura de color
+* HDR (según el sensor)
+* Reducción de ruido
+
+Streaming:
+
+* Resolución
+* FPS
+* Bitrate
+* Codec
+* Protocolo
+
+---
+
+# 🌐 Puertos utilizados
+
+| Puerto   | Servicio        |
+| -------- | --------------- |
+| **8044** | Panel web       |
+| **8554** | RTSP            |
+| **8890** | SRT             |
+| **1935** | RTMP (opcional) |
+| **5353** | mDNS            |
+
+---
+
+# 🚀 Instalación
+
 ```bash
 git clone https://github.com/Uni44/unicam.git
 cd unicam
-````
-
-### 2. Instalar dependencias
-
-```bash
 pip install -r requirements.txt
-```
-
-### 3. Ejecutar la cámara
-
-```bash
 python main.py
 ```
 
-### 4. Acceder al panel web
+---
 
-Abrí en tu navegador:
+# 🌍 Acceso
+
+Abrir en el navegador:
 
 ```
-http://ip-de-tu-pi:8044
+http://IP-DE-LA-RASPBERRY:8044
 ```
 
 ---
 
-## 📦 Licencia
+# 📄 Licencia
 
-Este proyecto se distribuye bajo la licencia **MIT**, lo que permite usarlo, modificarlo y redistribuirlo libremente.
+Licencia **MIT**.
 
----
-
-## 👤 Autor
-
-Proyecto creado por **Uni44**, desarrollado para la cámara **Unicam**.
+Libre para usar, modificar y distribuir.
 
 ---
+
+# 👤 Autor
+
+**Uni44**
+
+Proyecto **Unicam**

@@ -2,22 +2,21 @@ import threading
 import time
 import subprocess
 import logging
-from flask import request
 from picamera2 import Picamera2
 from picamera2.previews import DrmPreview
-import cv2
-from camera_config import WIDTH, HEIGHT, TARGET_FPS, IPDestino, aplicar_camara_config, generar_sdp, CONFIG, picam2, load_config, changeRunningCamera, getMute, get_audio_level
-from threading import Thread
-from lcd_preview import LCDPreview, monitorState, PrintImageDisplay, InMenu, lcd_preview, getInMenuState, getMonitorState
-from queue import Queue, Empty
-from PIL import Image, ImageOps
-import time
-import numpy as np
-from datetime import datetime
+from overlay_utils import start_overlay_updater
+from camera_config import aplicar_camara_config, generar_sdp, CONFIG, picam2, load_config, changeRunningCamera, build_audio_monitor_plan, resolve_audio_monitor_plan
+from talkback import ensure_fifo, start_talkback_feeder, FIFO_PATH
+from camera_utils import release_camera_resources
 import os
+from hdmi_fallback import show_fallback_image
 
 # Configurar logging para capturar mensajes de este módulo
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.propagate = True
+
+AUDIO_BITRATE = "192k"
 
 
 def ensure_xdg_runtime_dir():
@@ -42,34 +41,46 @@ def ensure_xdg_runtime_dir():
     except Exception:
         os.environ["XDG_RUNTIME_DIR"] = "/tmp"
 
+
+def start_drm_preview(picam2):
+    if picam2 is None:
+        return False
+    opcion_hdmi = CONFIG.get("hdmi")
+    if opcion_hdmi == "Off":
+        return False
+    try:
+        if hasattr(picam2, 'stop_preview'):
+            try:
+                picam2.stop_preview()
+            except Exception:
+                pass
+        time.sleep(0.2)
+        picam2.start_preview(DrmPreview(x=0, y=0, width=2560, height=1440)) #LA SALIDA POR HDMI ESTA FIJADO A 2k
+        logger.info("✅ DrmPreview iniciado para HDMI")
+        return True
+    except Exception as e:
+        logger.error(f"⚠️ No se pudo iniciar DrmPreview: {e}")
+        return False
+
+
+def request_hdmi_restart():
+    if picam2 is None:
+        logger.warning("No hay cámara activa para reiniciar HDMI")
+        return False
+    logger.info("🔁 Reiniciando HDMI/DrmPreview")
+    return start_drm_preview(picam2)
+
 video_thread = None
-preview_thread = None
+# Overlay control (thread + stop event)
+overlay_thread = None
+overlay_stop = None
 
 video_thread_running = threading.Event()
-rtsp_thread_running = threading.Event()
 
 stream_proc = None
-unclutter_proc = None
 watchdog_thread = None
 watchdog_running = threading.Event()
 restart_lock = threading.Lock()
-
-zoom_lock = threading.Lock()
-zoom_state = {'direction': 0, 'factor': 1.0}
-zoom_var = 0.04
-
-latest_frame = None  # va a contener siempre el último frame
-frame_lock = threading.Lock()
-
-def zoom_loop():
-    while True:
-        if zoom_state['direction'] != 0:
-            zoom_state['factor'] = max(1.0, min(4.0, zoom_state['factor'] + zoom_state['direction'] * zoom_var))
-        time.sleep(0.05)
-
-# Arrancamos un único hilo para siempre
-threading.Thread(target=zoom_loop, daemon=True).start()
-
 
 def _safe_start_blink():
     try:
@@ -87,9 +98,12 @@ def _safe_stop_blink():
         pass
 
 def video_stream_thread():
+    global overlay_thread, overlay_stop
+    ensure_fifo()
+    start_talkback_feeder()
     video_thread_running.set()
     logger.info("📡 Hilo de video stream iniciado.")
-    global picam2, zoom_state, latest_frame, frame_lock, CONFIG, WIDTH, HEIGHT, TARGET_FPS, stream_proc, unclutter_proc
+    global picam2, CONFIG, stream_proc
     
     CONFIG = load_config()
     mic_path = CONFIG.get("mic")
@@ -99,27 +113,38 @@ def video_stream_thread():
     else:
         CONFIG["mic"] = ""
         logger.info("Micrófono desactivado o comentado con '!'. Solo de video.")
+    audio_plan = resolve_audio_monitor_plan(CONFIG)
+    if audio_plan["enabled"]:
+        logger.info("🎧 Monitor de audio activado: %s -> %s", audio_plan["monitor_source"], audio_plan["monitor_output"])
+    else:
+        logger.warning("⚠️ Monitor de audio desactivado: dispositivo ALSA no válido o no configurado")
     WIDTH, HEIGHT = map(int, CONFIG["resolution"].lower().split("x"))
     TARGET_FPS = CONFIG["fps"]
 
+    import camera_config
     picam2 = Picamera2()
+    camera_config.picam2 = picam2
     config = picam2.create_video_configuration(
-        main={"format": "YUV420", "size": (WIDTH, HEIGHT)}
+        main={"format": "YUV420", "size": (WIDTH, HEIGHT)},
+        controls={"FrameRate": int(TARGET_FPS)}
     )
     picam2.configure(config)
-    
-    # Iniciar DrmPreview después de picam2.start()
-    opcion_hdmi = CONFIG.get("hdmi")
-    if opcion_hdmi != "Off":
-        time.sleep(0.5)  # Esperar a que se estabilice
-        try:
-            # DrmPreview con full screen: x=0, y=0, width y height de la pantalla
-            picam2.start_preview(DrmPreview(x=0, y=0, width=1920, height=1080))
-            logger.info("✅ DrmPreview iniciado para HDMI (1920x1080)")
-        except Exception as e:
-            logger.error(f"⚠️ No se pudo iniciar DrmPreview: {e}")
-
     picam2.start()
+    time.sleep(0.2)
+    drm_started = start_drm_preview(picam2)
+    if not drm_started:
+        try:
+            show_fallback_image(CONFIG, force=True)
+        except Exception as exc:
+            logger.warning("No se pudo mostrar la imagen de fallback: %s", exc)
+    # arrancar hilo que aplica overlay.png sobre la preview (si la API lo permite)
+    try:
+        if CONFIG.get("hdmi_overlay", True):
+            overlay_thread, overlay_stop = start_overlay_updater(picam2, interval=1.0)
+        else:
+            logger.info("Overlay HDMI desactivado por configuración (hdmi_overlay=False)")
+    except Exception:
+        logger.debug("No se pudo iniciar overlay updater thread")
     aplicar_camara_config(picam2, True)
     
     generar_sdp(ip=CONFIG.get("IPSDP"))
@@ -156,15 +181,16 @@ def video_stream_thread():
 
     # Add audio input if present
     if CONFIG.get('mic'):
+        audio_input_device = audio_plan.get('monitor_source') or CONFIG.get('mic')
         cmd.extend([
             '-thread_queue_size', '512',
             '-f', 'alsa',
             '-ar', '48000',
             '-ac', '1',
             '-fragment_size', '512',
-            '-i', CONFIG.get('mic'),
+            '-i', audio_input_device,
             '-c:a', 'aac',
-            '-b:a', '96k',
+            '-b:a', AUDIO_BITRATE,
             '-af', 'aresample=async=1:min_hard_comp=0.100:first_pts=0',
         ])
         cmd.extend(['-map', '0:v', '-map', '1:a'])
@@ -192,12 +218,13 @@ def video_stream_thread():
     ]
 
     if CONFIG.get('mic'):
+        audio_input_device = audio_plan.get('monitor_source') or CONFIG.get('mic')
         cmd_srt.extend([
             '-thread_queue_size', '512',
             '-f', 'alsa',
             '-ar', '48000',
             '-ac', '1',
-            '-i', CONFIG.get('mic')
+            '-i', audio_input_device
         ])
 
     cmd_srt.extend([
@@ -216,7 +243,7 @@ def video_stream_thread():
     if CONFIG.get('mic'):
         cmd_srt.extend([
             '-c:a', 'aac',
-            '-b:a', '128k',
+            '-b:a', AUDIO_BITRATE,
             '-af', 'aresample=async=1',
             '-map', '0:v', '-map', '1:a'
         ])
@@ -230,6 +257,7 @@ def video_stream_thread():
     cmd_srt.extend(['-flush_packets', '1', '-f', 'mpegts', srt_url])
 
     proc = None
+    monitor_proc = None
     
     if CONFIG.get("protocolo_stream") == "RTSP":
         # ensure XDG_RUNTIME_DIR for SDL/Wayland before launching
@@ -243,7 +271,29 @@ def video_stream_thread():
         with open("stream_log.txt", "wb") as f:
             proc = subprocess.Popen(cmd_srt, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
 
-    # Expose subprocess to watchdog
+    if audio_plan.get('enabled'):
+        monitor_output = audio_plan.get('monitor_output') or 'default'
+        monitor_cmd = [
+            'ffmpeg', '-y', '-hide_banner', '-loglevel', 'warning', '-nostats',
+            '-thread_queue_size', '4096',
+            '-f', 'alsa', '-ar', '48000', '-ac', '1',
+            '-i', audio_plan.get('monitor_source'),
+            '-thread_queue_size', '4096',
+            '-f', 's16le', '-ar', '48000', '-ac', '1',
+            '-i', FIFO_PATH,
+            '-filter_complex',
+            '[0:a]aresample=async=1:min_hard_comp=0.100:first_pts=0[a0];'
+            '[1:a]aresample=async=1:min_hard_comp=0.100:first_pts=0[a1];'
+            '[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[aout]',
+            '-map', '[aout]',
+            '-f', 'alsa', monitor_output
+        ]
+        with open("audio_monitor_log.txt", "wb") as f:
+            monitor_proc = subprocess.Popen(monitor_cmd, stdout=f, stderr=subprocess.STDOUT)
+            if monitor_proc.poll() is not None:
+                logger.warning("El proceso del monitor de audio falló al arrancar; se desactiva el monitor")
+                monitor_proc = None
+
     stream_proc = proc
 
     stop_error = False
@@ -254,21 +304,15 @@ def video_stream_thread():
         while video_thread_running.is_set() and not stop_error:
             try:
                 frame = picam2.capture_array("main")
-                current_zoom = zoom_state['factor']
-                frame = zoom_yuv420(frame, WIDTH, HEIGHT, current_zoom)
                 proc.stdin.write(memoryview(frame))
-                # DrmPreview maneja la salida HDMI automáticamente
-                latest_frame = memoryview(frame)
             except Exception as e:
                 stop_error = True
                 logger.error("Error en stream video: %s", e)
-                PrintImageDisplay("img/error_stream.png")
                 _safe_stop_blink()
                 changeRunningCamera(False)
     except Exception as e:
         stop_error = True
         logger.error("Error en hilo video: %s", e)
-        PrintImageDisplay("img/error_stream.png")
         _safe_stop_blink()
         changeRunningCamera(False)
     finally:
@@ -276,25 +320,31 @@ def video_stream_thread():
         if proc and proc.stdin:
             try:
                 proc.stdin.close()
-            except:
+            except Exception:
                 pass
-        # DrmPreview se cierra automáticamente con picam2
-        for p in [proc]:
+        for p in [proc, monitor_proc]:
             if p:
                 try:
                     p.terminate()
-                    p.wait(timeout=2) 
+                    p.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     p.kill()
-        # Clear watchdog-visible process
+        stream_proc = None
+        # Stop overlay thread if running
         try:
-            stream_proc = None
-        except:
+            if overlay_stop:
+                overlay_stop.set()
+            if overlay_thread and overlay_thread.is_alive():
+                overlay_thread.join(timeout=1)
+            overlay_stop = None
+            overlay_thread = None
+        except Exception:
             pass
-        picam2.close()
-        cv2.destroyAllWindows()
+        try:
+            release_camera_resources(picam2, wait_seconds=0.2)
+        except Exception:
+            pass
         logger.info("🔴 Hilo de video stream parado.")
-        PrintImageDisplay("img/error_stream.png")
         _safe_stop_blink()
         changeRunningCamera(False)
 
@@ -302,7 +352,7 @@ last_restart_time = 0
 debounce_delay = 1.0  # segundos
 def restart_video_thread():
     global video_thread, picam2, last_restart_time
-    
+
     now = time.time()
     if now - last_restart_time < debounce_delay:
         logger.debug("Ignorado: debounce activo.")
@@ -313,77 +363,25 @@ def restart_video_thread():
         logger.info("🔁 Deteniendo hilo de captura...")
     video_thread_running.clear()
     if video_thread and video_thread.is_alive():
-        video_thread.join()
-    time.sleep(1)
+        video_thread.join(timeout=3)
+    if picam2 is not None:
+        try:
+            release_camera_resources(picam2, wait_seconds=0.2)
+        except Exception:
+            pass
+        picam2 = None
+    time.sleep(0.5)
 
     logger.info("▶️ Iniciando nuevos hilos de video...")
     video_thread_running.set()
     video_thread = threading.Thread(target=video_stream_thread, daemon=True)
     video_thread.start()
-    preview_thread = Thread(target=lcd_preview_thread)
-    preview_thread.start()
     # arrancar watchdog que vigila el proceso ffmpeg
     try:
         start_stream_watchdog()
     except Exception:
         pass
 
-def lcd_preview_thread(): 
-    global latest_frame, CONFIG
-    start_time = datetime.now()
-    last_cfg_update = 0
-    UPDATE_DELAY = 2   # actualizar cada 2 segundos
-    ae_mode = "AUTO"
-    wb_mode = "AUTO"
-    Alevel = 100
-    mute = True
-    
-    try:
-        while video_thread_running.is_set():
-            if not getMonitorState():
-                time.sleep(0.1)
-                continue
-                
-            if getInMenuState():
-                time.sleep(0.1)
-                continue
-                
-            if latest_frame is None:
-                time.sleep(0.01)
-                continue
-                
-            # Actualizar CONFIG cada X segundos
-            now = time.time()
-            if now - last_cfg_update >= UPDATE_DELAY:
-                try:
-                    CONFIG = load_config()
-                    last_cfg_update = now
-                except:
-                    pass
-                
-                ae_mode = "AUTO"
-                if not CONFIG.get("AeEnable"):
-                    ae_mode = "MANUAL"
-                
-                wb_mode = "AUTO"
-                if not CONFIG.get("AwbEnable"):
-                    wb_mode = "MANUAL"
-                    
-                if getMute():
-                    Alevel = 100
-                    mute = True
-                else:
-                    Alevel = 44#get_audio_level()
-                    mute = False
-                    
-            elapsed_seconds = (datetime.now() - start_time).seconds
-            zm = round(zoom_state['factor'], 2)
-            
-            lcd_preview.show(latest_frame, width=WIDTH, height=HEIGHT, fps=TARGET_FPS, elapsed_seconds=elapsed_seconds, af_mode=ae_mode, wb_mode=wb_mode, zm=zm, recording=False, stream_active=True, mode="STR", Alevel=Alevel, mute=mute, bitrate=CONFIG.get("bitrate"))
-            
-            time.sleep(0.01)
-    except Exception as e:
-        print("Error en lcd_preview_thread_fast:", e)
 
 def apply_config_to_active_camera(todo=False):
     global picam2, CONFIG
@@ -391,91 +389,36 @@ def apply_config_to_active_camera(todo=False):
         aplicar_camara_config(picam2, todo)
         CONFIG = load_config()
 
-def zoom_yuv420(frame, width, height, zoom_factor):
-    if zoom_factor == 1.0:
-        return memoryview(frame)
-    yuv = frame.reshape((height*3//2, width))
-    bgr = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_I420)
-    new_w, new_h = int(width * zoom_factor), int(height * zoom_factor)
-    bgr_zoom = cv2.resize(bgr, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-    start_x = (new_w - width)//2
-    start_y = (new_h - height)//2
-    bgr_crop = bgr_zoom[start_y:start_y+height, start_x:start_x+width]
-    yuv_zoom = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2YUV_I420)
-    return yuv_zoom.ravel()
-
-def rtp_to_rtsp_thread():
-    rtsp_thread_running.set()
-    cmd = [
-        'ffmpeg',
-        '-protocol_whitelist', 'file,udp,rtp',
-        '-i', 'stream.sdp',
-        '-c', 'copy',
-        '-f', 'rtsp',
-        'rtsp://localhost:8554/cam'
-    ]
-    cmd2 = [
-        'ffmpeg',
-        '-protocol_whitelist', 'file,udp,rtp',
-        '-i', 'stream.sdp',
-        '-c', 'copy',
-        '-f', 'rtsp',
-        CONFIG.get("IPDestino")
-    ]
-    with open("ffmpeg_log.txt", "wb") as f:
-        proc = subprocess.Popen(cmd2, stdout=f, stderr=subprocess.STDOUT)
-    try:
-        while rtsp_thread_running.is_set():
-            if proc.poll() is not None:  # FFmpeg terminó
-                logger.error("FFmpeg RTSP murió. Revisa ffmpeg_log.txt para detalles.")
-                rtsp_thread_running.clear()
-                video_thread_running.clear()
-                break
-            time.sleep(0.5)
-    finally:
-        if proc.poll() is None:
-            proc.terminate()
-
-def zoom():
-    direction = request.form.get('direction')
-    with zoom_lock:
-        if direction == 'in':
-            zoom_state['direction'] = +1
-        elif direction == 'out':
-            zoom_state['direction'] = -1
-        elif direction == 'stop':
-            zoom_state['direction'] = 0
-    return ('', 204)
-    
-
 def stream_watchdog():
-    """Monitorea el proceso ffmpeg en `stream_proc` y reinicia usando
-    `restart_video_thread()` si `AutoReconnect` está activado en la configuración.
-    Ejecuta en un hilo daemon separado."""
-    global stream_proc, watchdog_running
+    """Vigila el proceso ffmpeg y reinicia si es necesario."""
+    global stream_proc, watchdog_running, CONFIG
+    logger.info("[WATCHDOG] iniciado")
     while watchdog_running.is_set():
         try:
+            cfg = load_config()
             proc = stream_proc
-            if proc is not None:
-                if proc.poll() is not None:  # ffmpeg terminó
-                    cfg = load_config()
-                    if cfg.get("AutoReconnect"):
-                        logger.info("[watchdog] ffmpeg murió, intentando reiniciar stream...")
-                        try:
-                            with restart_lock:
-                                restart_video_thread()
-                        except Exception as e:
-                            logger.error("[watchdog] reinicio fallido: %s", e)
-                            time.sleep(2)
-                        else:
-                            # dar tiempo al nuevo hilo para arrancar
-                            time.sleep(2)
+            CONFIG = cfg
+            if proc is None:
+                time.sleep(2)
+                continue
+            if proc.poll() is not None:
+                if cfg.get("AutoReconnect"):
+                    logger.warning("[WATCHDOG] ffmpeg murió; intentando reiniciar stream...")
+                    try:
+                        with restart_lock:
+                            restart_video_thread()
+                    except Exception as e:
+                        logger.error("[WATCHDOG] reinicio fallido: %s", e)
+                        time.sleep(2)
                     else:
-                        watchdog_running.clear()
-                        break
+                        time.sleep(2)
+                else:
+                    watchdog_running.clear()
+                    break
+                continue
         except Exception as e:
-            logger.error("[watchdog] error: %s", e)
-        time.sleep(3)
+            logger.error("[WATCHDOG] error: %s", e)
+        time.sleep(1.0)
 
 
 def start_stream_watchdog():

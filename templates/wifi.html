@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unicam • WiFi</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #111; color: #fff; padding: 24px; }
+    form { max-width: 360px; margin: 0 auto; background: #1a1a1a; padding: 20px; border-radius: 8px; }
+    input { width: 100%; margin-bottom: 12px; padding: 8px; }
+    button { padding: 8px 14px; }
+  </style>
+</head>
+<body>
+  {% if message %}
+    <div style="margin-bottom: 12px; padding: 10px; border: 1px solid #ccc; background: #f8f8f8; color: #111;">{{ message }}</div>
+  {% endif %}
+  <form method="POST">
+    <label>SSID:</label>
+    <input name="ssid">
+    <label>Password:</label>
+    <input name="password" type="password">
+    <button type="submit">Guardar WiFi</button>
+  </form>
+</body>
+</html>

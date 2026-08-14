@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unicam • Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/unicam.css') }}">
+</head>
+<body>
+  <div class="wrap">
+    
+    <header class="main-header">
+      <div>
+        <h1>Unicam</h1>
+        <div class="camera-id-badge" id="cameraBadge">Camera 1</div>
+      </div>
+      <div class="system-version">v3.0.0</div>
+    </header>
+
+    <section class="grid-container">
+      
+      <aside class="column sidebar">
+        
+        <div class="card status-card">
+          <h2>Status</h2>
+          <div class="leds-row">
+            <div class="led-item"><span id="ledCamara" class="dot ok"></span> Camera</div>
+            <div class="led-item"><span id="ledConectado" class="dot ok"></span> Connection</div>
+            <div class="led-item"><span id="ledInternet" class="dot blink"></span> Internet</div>
+            <div class="led-item"><span id="ledCpu" class="dot blink"></span> CPU</div>
+          </div>
+        </div>
+
+        <div class="card system-card">
+          <h2>System</h2>
+          <div class="metrics-grid">
+            <div class="metric-item">
+              <div class="status-label">CPU Load: <span id="cpuText">0%</span></div>
+              <div class="status-bar"><div id="cpuBar" class="status-fill"></div></div>
+              <div class="status-subtext">FREQ: <span id="cpu_freqText">0</span> MHz</div>
+            </div>
+            
+            <div class="metric-item">
+              <div class="status-label">RAM Usage: <span id="ramText">0%</span></div>
+              <div class="status-bar"><div id="ramBar" class="status-fill"></div></div>
+            </div>
+            
+            <div class="metric-item">
+              <div class="status-label">Core Temp: <span id="tempText">0°C</span></div>
+              <div class="status-bar"><div id="tempBar" class="status-fill"></div></div>
+            </div>
+            
+            <div class="metric-item">
+              <div class="status-label">OS Storage: <span id="diskText">0%</span></div>
+              <div class="status-bar"><div id="diskBar" class="status-fill"></div></div>
+            </div>
+            
+            <div class="metric-item">
+              <div class="status-label">Media Storage: <span id="storageDiskText">0%</span></div>
+              <div class="status-bar"><div id="storageDiskBar" class="status-fill"></div></div>
+            </div>
+            
+            <div class="metric-item">
+              <div class="status-label">Battery Level: <span id="batText">0%</span></div>
+              <div class="status-bar"><div id="batBar" class="status-fill"></div></div>
+            </div>
+          </div>
+          
+          <div class="system-footer-metrics">
+            <div class="status-text">Voltage: <span id="volText">0.0</span>V</div>
+            <div class="status-text">Load Avg: <span id="loadText">0.0</span></div>
+          </div>
+        </div>
+
+        <div class="card chart-card">
+          <h3>Load Telemetry</h3>
+          <div class="chart-box">
+            <canvas id="unicamChart"></canvas>
+          </div>
+        </div>
+
+        <div class="card wifi-card">
+          <h2>Network Binding</h2>
+          <form method="POST" action="/wifi" class="form-grid">
+            <div class="control-group">
+              <label>SSID</label>
+              <input type="text" name="ssid" placeholder="Network Name">
+            </div>
+            <div class="control-group">
+              <label>Password</label>
+              <input name="password" type="text" placeholder="Wi-Fi Password">
+            </div>
+            <button type="submit" class="btn btn-primary">Connect Network</button>
+          </form>
+        </div>
+      </aside>
+
+      <main class="column main-panel">
+        
+        <div class="card actions-card">
+          <h2>Deck Control</h2>
+          <div class="actions-wrapper">
+            <div class="btn-group">
+              <button class="btn btn-success" onclick="restartStream()">START</button>
+              <button class="btn btn-danger" onclick="stopStream()">STOP</button>
+              <button class="btn btn-secondary" onclick="restartHdmi()">RESET HDMI</button>
+            </div>
+
+            <div class="card talkback-card" style="padding: 8px 10px; margin-top: 10px; max-width: 220px;">
+              <button id="ptt" class="btn btn-primary" style="width: 100px; height: 44px; border-radius: 999px; font-size: 13px; padding: 0 10px;">🎙️ Talk</button>
+              <textarea id="talkbackText" rows="3" placeholder="Mensaje para el intercom" style="width: 100%; margin-top: 8px; border-radius: 8px; padding: 8px; resize: vertical;"></textarea>
+              <button id="sendTtsBtn" class="btn btn-secondary" style="width: 100%; margin-top: 6px; font-size: 12px; padding: 6px 10px;">🗣️ Enviar texto</button>
+              <div id="talkbackStatus" style="margin-top: 6px; font-weight: 600; font-size: 12px;">Free</div>
+            </div>
+
+            <div id="encoderWarningBanner" class="encoder-warning-banner" role="alert" aria-live="assertive"></div>
+            
+            <div class="checkbox-group inline-group">
+              <label for="AutoReconnect">
+                <input type="checkbox" id="AutoReconnect"> Auto Reconnect
+              </label>
+            </div>
+
+            <div class="btn-group">
+              <button class="btn" id="zoomIn" data-optics-action="zoom_in">ZOOM +</button>
+              <button class="btn" id="zoomSpeed" data-optics-action="zoom_speed_toggle">ZOOM SPEED</button>
+              <button class="btn" id="zoomOut" data-optics-action="zoom_out">ZOOM -</button>
+            </div>
+
+            <div class="btn-group">
+              <button class="btn" id="focusIn" data-optics-action="focus_in">FOCUS &lt;</button>
+              <button class="btn" id="autofocusToggle" data-optics-action="autofocus_toggle">AUTO/MANUAL</button>
+              <button class="btn" id="focusOut" data-optics-action="focus_out">FOCUS &gt;</button>
+            </div>
+            <div class="btn-group">
+              <button class="btn btn-secondary" id="calibrateOptics">CALIBRAR AF</button>
+            </div>
+            <div id="opticsStatus" class="optics-status">Ready to control zoom and focus.</div>
+            
+            <div class="btn-group storage-actions">
+              <button class="btn" onclick="window.location.href='/files'">Browse Files</button>
+              <button class="btn" id="openPicturesBtn">Pictures</button>
+              <button class="btn" id="openVideosBtn">Videos</button>
+              <button class="btn btn-danger-dark" id="wipeMediaBtn">Wipe Media</button>
+            </div>
+            
+            <div class="btn-group system-actions">
+              <button class="btn btn-warning" onclick="restartPi()">Restart</button>
+              <button class="btn btn-danger-dark" onclick="shutdownPi()">Shutdown</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          
+          <div class="card video-settings-card">
+            <div id="video-settings">
+              <h2>Signal & Encoding Configuration</h2>
+              
+              <div class="control-group-row">
+                <div class="control-group">
+                  <label>Capture Mode</label>
+                  <select id="modo">
+                    <option value="Foto">Photo</option>
+                    <option value="Stream">Stream</option>
+                    <option value="Grabar">Record</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>Camera Number</label>
+                  <input type="number" id="camera_number" min="1" max="99" step="1" placeholder="1">
+                </div>
+              </div>
+
+              <div class="control-group-row">
+                <div class="control-group">
+                  <label>Resolution</label>
+                  <select id="resolution">
+                    <option>2560x1440</option>
+                    <option>1920x1080</option>
+                    <option>1280x720</option>
+                    <option>640x480</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="control-group-row">
+                <div class="control-group">
+                  <label>HDMI Output</label>
+                  <select id="hdmi">
+                    <option>Full</option>
+                    <option>Mid</option>
+                    <option>Low</option>
+                    <option>Off</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>HDMI Overlay</label>
+                  <label class="checkbox-inline">
+                    <input type="checkbox" id="hdmi_overlay"> Enable overlay
+                  </label>
+                </div>
+                <div class="control-group">
+                  <label>Fallback HDMI</label>
+                  <label class="checkbox-inline">
+                    <input type="checkbox" id="hdmi_fallback_enabled"> Show image when HDMI off
+                  </label>
+                </div>
+                <div class="control-group">
+                  <label>Fallback image</label>
+                  <input type="text" id="hdmi_fallback_image" placeholder="/path/to/image.png">
+                </div>
+                <div class="control-group">
+                  <label>Target FPS</label>
+                  <select id="fps">
+                    <option>90</option>
+                    <option>60</option>
+                    <option>59</option>
+                    <option>30</option>
+                    <option>29</option>
+                    <option>24</option>
+                    <option>15</option>
+                    <option>5</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="control-group-row">
+                <div class="control-group">
+                  <label>Stream Protocol</label>
+                  <select id="protocolo_stream">
+                    <option>RTSP</option>
+                    <option>SRT</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>Bitrate</label>
+                  <select id="bitrate">
+                    <option>16M</option><option>15M</option><option>14M</option><option>13M</option>
+                    <option>12M</option><option>10M</option><option>9M</option><option>8M</option>
+                    <option>7M</option><option>6M</option><option>5M</option><option>4M</option>
+                    <option>3M</option><option>2M</option><option>1M</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="control-group">
+                <label>Encoder Preset</label>
+                <select id="preset">
+                  <option>ultrafast</option><option>superfast</option><option>veryfast</option>
+                  <option>faster</option><option>fast</option><option>medium</option>
+                  <option>slow</option><option>slower</option><option>placebo</option>
+                </select>
+              </div>
+
+              <div class="control-group">
+                <label class="checkbox-inline">
+                  <input type="checkbox" id="encoder_warning_enabled"> Activar alerta de riesgo del encoder
+                </label>
+              </div>
+
+              <fieldset class="sub-section-block">
+                <legend>RTSP Settings</legend>
+                <div class="control-group">
+                  <label>Transmission Protocol</label>
+                  <input type="text" id="protocolo" placeholder="tcp">
+                </div>
+                <div class="control-group">
+                  <label>RTSP Target URI</label>
+                  <input type="text" id="destino" placeholder="rtsp://192.168.0.12:8554/cam">
+                </div>
+                <div class="control-group">
+                  <label>SDP Bind IP</label>
+                  <input type="text" id="sdp" placeholder="127.0.0.1">
+                </div>
+              </fieldset>
+
+              <fieldset class="sub-section-block">
+                <legend>SRT Settings</legend>
+                <div class="control-group">
+                  <label>SRT Destination IP</label>
+                  <input type="text" id="IPDestinoSRT" placeholder="192.168.0.12">
+                </div>
+                <div class="control-group">
+                  <label>SRT Target Port</label>
+                  <input type="text" id="puertoDestinoSRT" placeholder="0000">
+                </div>
+                <div class="control-group">
+                  <label>SRT Extra Data</label>
+                  <input type="text" id="extraDataSRT" placeholder="?streamid=publish:cam...">
+                </div>
+              </fieldset>
+
+              <fieldset class="sub-section-block">
+                <legend>Audio & Mount Storage</legend>
+                <div class="control-group">
+                  <label>Microphone Input</label>
+                  <select id="mic">
+                    <option value="!">Disabled (!)</option>
+                    <option value="">No mic (empty)</option>
+                  </select>
+                  <span class="field-help">Select mic node or use '!' to bypass.</span>
+                </div>
+
+                <div class="control-group">
+                  <label>Audio Monitor</label>
+                  <label class="checkbox-inline">
+                    <input type="checkbox" id="audio_monitor_enabled"> Enable live monitoring
+                  </label>
+                </div>
+
+                <div class="control-group">
+                  <label>Monitor Output Device</label>
+                  <select id="audio_monitor_output">
+                    <option value="default">Default output</option>
+                  </select>
+                  <span class="field-help">Choose the ALSA device that receives the monitored mic signal.</span>
+                </div>
+                
+                <div class="control-group">
+                  <label>Storage Mode</label>
+                  <select id="storage_mode">
+                    <option value="default">Default Internal</option>
+                    <option value="custom">Custom Directory</option>
+                    <option value="usb">Automated USB Node</option>
+                  </select>
+                </div>
+                
+                <div class="control-group">
+                  <label>Custom Mount Path</label>
+                  <input type="text" id="storage_path" placeholder="e.g., /home/pi/Unicam/media">
+                </div>
+
+                <div class="control-group" id="storage_usb_box" style="display:none;">
+                  <label>Target USB Unit</label>
+                  <select id="storage_usb_select"></select>
+                  <input type="hidden" id="storage_usb_path" value="">
+                </div>
+                <div class="field-help" id="storage_usb_help" style="display:none;">
+                  Select a valid /media directory linked to your USB device (excludes 'test').
+                </div>
+              </fieldset>
+
+              <button id="settings-btn-1" class="btn btn-submit-panel">Apply Video Settings</button>
+            </div>
+          </div>
+
+          <div class="card camera-settings-card">
+            <div class="camera-controls">
+              
+              <fieldset class="inner-section">
+                <legend>Image Pipeline</legend>
+                <div class="range-group">
+                  <label>Brightness <span class="range-val">(-1 to 1)</span></label>
+                  <input type="range" id="Brightness" min="-1" max="1" step="0.01">
+                </div>
+                <div class="range-group">
+                  <label>Contrast <span class="range-val">(0 to 32)</span></label>
+                  <input type="range" id="Contrast" min="0" max="32" step="0.1">
+                </div>
+                <div class="range-group">
+                  <label>Saturation <span class="range-val">(0 to 32)</span></label>
+                  <input type="range" id="Saturation" min="0" max="32" step="0.1">
+                </div>
+                <div class="range-group">
+                  <label>Sharpness <span class="range-val">(0 to 16)</span></label>
+                  <input type="range" id="Sharpness" min="0" max="16" step="0.1">
+                </div>
+                <div class="control-group">
+                  <label>Noise Reduction (NR)</label>
+                  <select id="NoiseReductionMode">
+                    <option value="0">Off</option><option value="1">Fast</option>
+                    <option value="2">High Quality</option><option value="3">Minimal</option>
+                    <option value="4">Custom</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>HDR Mode</label>
+                  <select id="HdrMode">
+                    <option value="0">Off</option><option value="1">HDR1</option>
+                    <option value="2">HDR2</option><option value="3">HDR3</option>
+                    <option value="4">HDR4</option>
+                  </select>
+                </div>
+              </fieldset>
+
+              <fieldset class="inner-section">
+                <legend>White Balance (WB)</legend>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" id="AwbEnable"> Enable AWB</label>
+                </div>
+                <div class="control-group">
+                  <label>AWB Mode</label>
+                  <select id="AwbMode">
+                    <option value="0">Auto</option><option value="1">Incandescent</option>
+                    <option value="2">Tungsten</option><option value="3">Fluorescent</option>
+                    <option value="4">Indoor</option><option value="5">Daylight</option>
+                    <option value="6">Cloudy</option><option value="7">Custom</option>
+                  </select>
+                </div>
+                <div class="range-group">
+                  <label>Color Temperature <span class="range-val">(100 - 100k)</span></label>
+                  <input type="range" id="ColourTemperature" min="100" max="100000" step="100">
+                </div>
+                <div class="range-group">
+                  <label>Color Gains <span class="range-val">(0 - 32)</span></label>
+                  <input type="range" id="ColourGains" min="0" max="32" step="0.1">
+                </div>
+              </fieldset>
+
+              <fieldset class="inner-section">
+                <legend>Exposure Control (AE)</legend>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" id="AeEnable"> Enable AE</label>
+                </div>
+                <div class="range-group">
+                  <label>Exposure Time</label>
+                  <input type="range" id="ExposureTime" min="13" max="112015096" step="100">
+                </div>
+                <div class="range-group">
+                  <label>Exposure Value (EV)</label>
+                  <input type="range" id="ExposureValue" min="-8" max="8" step="0.1">
+                </div>
+                <div class="range-group">
+                  <label>Analogue Gain</label>
+                  <input type="range" id="AnalogueGain" min="1.12" max="16" step="0.01">
+                </div>
+                <div class="control-group">
+                  <label>Exposure Mode</label>
+                  <select id="AeExposureMode">
+                    <option value="0">Normal</option><option value="1">Short</option>
+                    <option value="2">Long</option><option value="3">Custom</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>Constraint Mode</label>
+                  <select id="AeConstraintMode">
+                    <option value="0">Normal</option><option value="1">Highlight</option>
+                    <option value="2">Shadow</option><option value="3">Custom</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>Metering Mode</label>
+                  <select id="AeMeteringMode">
+                    <option value="0">Centre</option><option value="1">Spot</option>
+                    <option value="2">Matrix</option><option value="3">Custom</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>Flicker Mode</label>
+                  <select id="AeFlickerMode">
+                    <option value="0">Off</option><option value="1">Auto</option>
+                  </select>
+                </div>
+                <div class="range-group">
+                  <label>Flicker Period</label>
+                  <input type="range" id="AeFlickerPeriod" min="100" max="1000000" step="100">
+                </div>
+              </fieldset>
+
+              <fieldset class="inner-section">
+                <legend>Autofocus Engine & Optics</legend>
+                <div class="control-group-row">
+                  <div class="control-group">
+                    <label>AF Mode</label>
+                    <select id="AfMode">
+                      <option value="0">Manual</option><option value="1">Auto</option><option value="2">Continuous</option>
+                    </select>
+                  </div>
+                  <div class="control-group">
+                    <label>AF Range</label>
+                    <select id="AfRange">
+                      <option value="0">Normal</option><option value="1">Macro</option><option value="2">Full</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="control-group-row">
+                  <div class="control-group">
+                    <label>AF Speed</label>
+                    <select id="AfSpeed">
+                      <option value="0">Normal</option><option value="1">Fast</option>
+                    </select>
+                  </div>
+                  <div class="control-group">
+                    <label>AF Metering</label>
+                    <select id="AfMetering">
+                      <option value="0">Auto</option><option value="1">Manual</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="control-group">
+                  <label>AF Pause</label>
+                  <select id="AfPause">
+                    <option value="0">None</option><option value="1">Short</option><option value="2">Long</option>
+                  </select>
+                </div>
+                <div class="range-group">
+                  <label>Manual Lens Position</label>
+                  <input type="range" id="LensPosition" min="0" max="15" step="0.05">
+                </div>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" id="AfTrigger"> AF Trigger</label>
+                </div>
+              </fieldset>
+
+              <fieldset class="inner-section">
+                <legend>Advanced Sensor Matrix</legend>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" id="StatsOutputEnable"> Enable Stats Output</label>
+                </div>
+                <div class="control-group">
+                  <label>Sync Mode</label>
+                  <select id="SyncMode">
+                    <option value="0">Off</option><option value="1">Sensor Sync</option><option value="2">Frame Sync</option>
+                  </select>
+                </div>
+                <div class="range-group">
+                  <label>Sync Frames</label>
+                  <input type="range" id="SyncFrames" min="1" max="1000000" step="1">
+                </div>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" id="CnnEnableInputTensor"> CNN Input Tensor</label>
+                </div>
+                <div class="control-group">
+                  <label>Exposure Time Mode</label>
+                  <select id="ExposureTimeMode">
+                    <option value="0">Manual</option><option value="1">Auto</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>Analogue Gain Mode</label>
+                  <select id="AnalogueGainMode">
+                    <option value="0">Manual</option><option value="1">Auto</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>AF Windows <span class="range-val">(x,y,w,h)</span></label>
+                  <input type="text" id="AfWindows" placeholder="0,0,65535,65535">
+                </div>
+                <div class="control-group">
+                  <label>Frame Duration Limits</label>
+                  <input type="text" id="FrameDurationLimits" placeholder="17849,112075593">
+                </div>
+                <div class="control-group">
+                  <label>Scaler Crop <span class="range-val">(x,y,w,h)</span></label>
+                  <input type="text" id="ScalerCrop" placeholder="0,0,4608,2592">
+                </div>
+              </fieldset>
+
+              <div class="panel-action-buttons">
+                <button id="settings-btn-2" class="btn btn-primary">Flush Sensor Data</button>
+                <button id="settings-btn-3" class="btn btn-secondary">Reload Core Config</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </section>
+
+    <footer class="main-footer">
+      <span>Unicam Version 3.0.0 By Uni44</span>
+    </footer>
+
+    <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+    <script src="{{ url_for('static', filename='chart.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/unicam.js') }}"></script>
+  </div>
+</body>
+</html>

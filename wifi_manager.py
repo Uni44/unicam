@@ -4,8 +4,7 @@ import requests
 import socket
 import os
 import threading
-from flask import render_template_string, request
-from htmlTemplates import HTML_COF
+from flask import render_template, request
 
 def wifi():
     message = None
@@ -17,7 +16,7 @@ def wifi():
             message = f"✅ Conectado a {ssid}. La Raspberry Pi intentará mantener esta conexión incluso sin Internet."
         else:
             message = f"❌ No se pudo conectar a {ssid}: {result}. Se ha activado el hotspot."
-    return render_template_string(HTML_COF, message=message)
+    return render_template('wifi.html', message=message)
 
 def get_wifi_device_status():
     try:

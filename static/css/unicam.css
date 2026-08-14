@@ -1,0 +1,479 @@
+/* ==========================================================================
+   UNICAM DESIGN SYSTEM • VARIABLES & BASE
+   ========================================================================== */
+:root {
+  --bg: #000;
+  --text: #f1f1f1;
+  --accent: #facc15;
+  --accent-hover: #fff200;
+  --card: #0a0a0a;
+  --line: #1f1f1f;
+  --radius: 4px;
+  --shadow: 0 0 25px rgba(0,0,0,0.85);
+  --font: "Consolas", "Roboto Mono", monospace;
+  
+  /* Paleta de Estados Industriales */
+  --btn-success: #16a34a;
+  --btn-danger: #dc2626;
+  --btn-warning: #ea580c;
+  --btn-secondary: #27272a;
+}
+
+* { 
+  box-sizing: border-box; 
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  letter-spacing: 0.3px;
+  line-height: 1.4;
+}
+
+/* Contenedor Principal Ajustado */
+.wrap { 
+  max-width: 1400px; 
+  margin: 0 auto; 
+  padding: 20px; 
+}
+
+/* ==========================================================================
+   HEADER & FOOTER
+   ========================================================================== */
+.main-header {
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center;
+  border-bottom: 2px solid var(--accent); 
+  padding-bottom: 8px; 
+  margin-bottom: 20px;
+}
+
+.main-header h1 {
+  font-size: 26px; 
+  color: var(--accent); 
+  font-weight: 700; 
+  text-transform: uppercase; 
+  letter-spacing: 1px;
+  margin: 0;
+}
+
+.camera-id-badge {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.main-header > div:first-child {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+}
+
+.system-version {
+  font-size: 13px;
+  color: #666;
+}
+
+.main-footer {
+  margin-top: 40px; 
+  display: flex;
+  justify-content: space-between;
+  color: #555; 
+  font-size: 12px; 
+  border-top: 1px solid var(--line); 
+  padding-top: 12px; 
+}
+
+/* ==========================================================================
+   LAYOUT ESTRUCTURAL (GRID DE DOS COLUMNAS)
+   ========================================================================== */
+.grid-container {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+/* En pantallas chicas colapsa a una sola columna */
+@media (max-width: 960px) {
+  .grid-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Sub-grilla para los paneles de settings de la derecha */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 500px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==========================================================================
+   COMPONENTE: CARDS INDUSTRIALES
+   ========================================================================== */
+.card {
+  background: var(--card); 
+  border: 1px solid var(--line); 
+  border-left: 3px solid var(--accent);
+  padding: 16px; 
+  box-shadow: var(--shadow);
+}
+
+.card h2, .card h3 {
+  color: var(--accent); 
+  font-size: 14px; 
+  text-transform: uppercase; 
+  margin-top: 0;
+  border-bottom: 1px solid var(--line); 
+  padding-bottom: 8px; 
+  margin-bottom: 16px;
+  letter-spacing: 0.5px;
+}
+
+/* Bloques internos de settings (Fieldsets) */
+.sub-section-block, .inner-section {
+  border: 1px solid var(--line);
+  margin-bottom: 16px;
+  padding: 14px;
+  background: rgba(255,255,255,0.01);
+}
+
+.sub-section-block legend, .inner-section legend {
+  color: #aaa;
+  font-size: 11px;
+  text-transform: uppercase;
+  padding: 0 8px;
+  letter-spacing: 0.5px;
+}
+
+/* ==========================================================================
+   CONTROLES DE FORMULARIOS & INPUTS
+   ========================================================================== */
+.control-group {
+  margin-bottom: 14px;
+}
+
+.control-group-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+label { 
+  display: block; 
+  margin-bottom: 6px; 
+  font-size: 12px; 
+  color: #bbb; 
+}
+
+/* Cajas de Texto y Selectores */
+input[type="text"], input[type="password"], input[type="number"], select {
+  width: 100%; 
+  padding: 7px 10px; 
+  border: 1px solid #2a2a2a; 
+  border-radius: var(--radius);
+  background: #111; 
+  color: var(--text); 
+  font-family: var(--font); 
+  font-size: 13px;
+  transition: border-color 0.15s;
+}
+
+input:focus, select:focus {
+  outline: none; 
+  border-color: var(--accent); 
+  background: #151515;
+}
+
+/* Range Sliders de Precisión */
+.range-group {
+  margin-bottom: 14px;
+}
+
+.range-group label {
+  display: flex;
+  justify-content: space-between;
+}
+
+.range-val {
+  color: #666;
+  font-size: 11px;
+}
+
+input[type="range"] {
+  -webkit-appearance: none; 
+  width: 100%; 
+  height: 4px; 
+  background: #222; 
+  border-radius: 2px; 
+  outline: none;
+  margin: 8px 0;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; 
+  width: 12px; 
+  height: 12px; 
+  background: var(--accent); 
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 12px; 
+  height: 12px; 
+  background: var(--accent); 
+  border-radius: 2px;
+  cursor: pointer;
+  border: none;
+}
+
+/* Checkboxes Inteligentes */
+.checkbox-group {
+  margin: 12px 0;
+}
+
+.optics-status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #aaa;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.checkbox-group input[type="checkbox"], .inline-group input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.field-help {
+  display: block;
+  font-size: 11px;
+  color: #666;
+  margin-top: 4px;
+}
+
+/* ==========================================================================
+   ALERTAS VISIBLES DEL ENCODER
+   ========================================================================== */
+.encoder-warning-banner {
+  display: none;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  background: rgba(250, 204, 21, 0.16);
+  color: #fff3b0;
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.25);
+}
+
+.encoder-warning-banner.visible {
+  display: block;
+}
+
+.encoder-warning-banner.warning {
+  border-left-color: var(--btn-warning);
+  background: rgba(234, 88, 12, 0.16);
+  color: #ffd0ad;
+}
+
+.encoder-warning-banner.error {
+  border-left-color: var(--btn-danger);
+  background: rgba(220, 38, 38, 0.18);
+  color: #ffbebe;
+}
+
+/* ==========================================================================
+   BOTONES E INTERFACES DE ACCIÓN
+   ========================================================================== */
+.btn, button {
+  background: #222; 
+  color: #ccc; 
+  border: 1px solid #333; 
+  padding: 8px 14px; 
+  font-weight: 700; 
+  font-family: var(--font);
+  border-radius: var(--radius); 
+  cursor: pointer; 
+  transition: all 0.1s; 
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+.btn:hover, button:hover { 
+  background: #333;
+  color: #fff;
+  border-color: #444;
+}
+
+/* Grupos y alineaciones de botones */
+.actions-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.btn-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 8px;
+}
+
+/* Variantes de Botones de Control */
+.btn-primary { background: var(--accent); color: #000; border: none; }
+.btn-primary:hover { background: var(--accent-hover); color: #000; }
+
+.btn-success { background: var(--btn-success); color: #fff; border: none; }
+.btn-success:hover { background: #22c55e; }
+
+.btn-danger { background: var(--btn-danger); color: #fff; border: none; }
+.btn-danger:hover { background: #ef4444; }
+
+.btn-warning { background: var(--btn-warning); color: #fff; border: none; }
+.btn-warning:hover { background: #f97316; }
+
+.btn-danger-dark { background: #1a0505; color: #ef4444; border: 1px solid #450a0a; }
+.btn-danger-dark:hover { background: #450a0a; color: #fff; }
+
+.btn-submit-panel {
+  width: 100%;
+  background: transparent;
+  border: 1px dashed var(--accent);
+  color: var(--accent);
+  padding: 10px;
+}
+.btn-submit-panel:hover {
+  background: var(--accent);
+  color: #000;
+}
+
+.panel-action-buttons {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* ==========================================================================
+   TELEMETRÍA, LEDS Y TELEMETRÍA GRÁFICA
+   ========================================================================== */
+.leds-row { 
+  display: flex; 
+  flex-wrap: wrap;
+  gap: 16px; 
+  align-items: center; 
+}
+
+.led-item { 
+  display: flex; 
+  align-items: center; 
+  gap: 6px; 
+  font-size: 13px; 
+}
+
+.dot { 
+  width: 12px; 
+  height: 12px; 
+  border-radius: 50%; 
+  background: #222; 
+  display: inline-block; 
+  box-shadow: inset 0 0 4px rgba(0,0,0,0.8);
+}
+.dot.ok { background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.5); }
+.dot.active { background: var(--accent); box-shadow: 0 0 8px rgba(250, 204, 21, 0.5); }
+.dot.err { background: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.5); }
+
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.dot.blink { animation: blink 1.5s infinite ease-in-out; }
+
+/* Barras de Carga del Sistema */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 340px) { .metrics-grid { grid-template-columns: 1fr; } }
+
+.metric-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.status-label { font-size: 12px; margin-bottom: 4px; color: #aaa; }
+.status-subtext { font-size: 10px; color: #555; margin-top: 2px; }
+
+.status-bar { 
+  background: #111; 
+  border: 1px solid #222; 
+  border-radius: 2px; 
+  height: 8px; 
+  overflow: hidden; 
+}
+.status-fill { 
+  height: 100%; 
+  background: var(--accent); 
+  width: 0%; 
+  transition: width 0.4s ease-out;
+}
+
+.system-footer-metrics {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #666;
+}
+
+/* Caja del Gráfico */
+.chart-card h3 { border: none; margin-bottom: 4px; padding-bottom: 0;}
+.chart-box { 
+  width: 100%; 
+  position: relative; 
+}
+.chart-box canvas { 
+  width: 100% !important; 
+  height: 180px !important; 
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #222; border-radius: var(--radius); }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }

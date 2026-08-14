@@ -2,23 +2,13 @@ import threading
 import time
 import subprocess
 import logging
-from flask import request
+from datetime import datetime
 from picamera2 import Picamera2
 from picamera2.previews import DrmPreview
-import cv2
-from camera_config import WIDTH, HEIGHT, TARGET_FPS, IPDestino, aplicar_camara_config, generar_sdp, CONFIG, picam2, changeRunningCamera, load_config
-from threading import Thread
-from lcd_preview import LCDPreview, monitorState, PrintImageDisplay, InMenu, lcd_preview, getInMenuState, getMonitorState
-from queue import Queue
-from PIL import Image, ImageOps
-from queue import Empty
-import time
-import numpy as np
-from datetime import datetime
-from video_stream import (
-    zoom_lock, zoom_state, zoom_var, zoom_loop, zoom, zoom_yuv420
-)
+from camera_config import aplicar_camara_config, CONFIG, picam2, changeRunningCamera, load_config, resolve_storage_dir
+from overlay_utils import start_overlay_updater
 import os
+from hdmi_fallback import show_fallback_image
 
 logger = logging.getLogger(__name__)
 
@@ -44,47 +34,84 @@ def ensure_xdg_runtime_dir():
     except Exception:
         os.environ["XDG_RUNTIME_DIR"] = "/tmp"
 
+
+def start_drm_preview(picam2):
+    if picam2 is None:
+        return False
+    opcion_hdmi = CONFIG.get("hdmi")
+    if opcion_hdmi == "Off":
+        return False
+    try:
+        if hasattr(picam2, 'stop_preview'):
+            try:
+                picam2.stop_preview()
+            except Exception:
+                pass
+        time.sleep(0.2)
+        picam2.start_preview(DrmPreview(x=0, y=0, width=2560, height=1440)) #LA SALIDA POR HDMI ESTA FIJADO A 2k
+        logger.info("✅ DrmPreview iniciado para HDMI")
+        return True
+    except Exception as e:
+        logger.error(f"⚠️ No se pudo iniciar DrmPreview: {e}")
+        return False
+
+
+def request_hdmi_restart():
+    if picam2 is None:
+        logger.warning("No hay cámara activa para reiniciar HDMI")
+        return False
+    logger.info("🔁 Reiniciando HDMI/DrmPreview")
+    return start_drm_preview(picam2)
+
 video_thread = None
-preview_thread = None
 
 video_thread_running = threading.Event()
 
-latest_frame = None  # va a contener siempre el último frame
-frame_lock = threading.Lock()
+# Overlay control
+overlay_thread = None
+overlay_stop = None
 
 fotoTake = False
 
 # Crear carpeta si no existe
-carpeta = "fotos"
+carpeta = resolve_storage_dir("fotos", CONFIG)
 os.makedirs(carpeta, exist_ok=True)
 
 def video_stream_thread():
+    global overlay_thread, overlay_stop
     video_thread_running.set()
     logger.info("📡 Hilo de captura de foto iniciado.")
     
-    global picam2, zoom_state, latest_frame, frame_lock, fotoTake
+    global picam2, fotoTake
     from gpio_control import start_blink, stop_blink
 
     WIDTH2, HEIGHT2 = 4608, 2592
 
+    import camera_config
     picam2 = Picamera2()
+    camera_config.picam2 = picam2
     config = picam2.create_video_configuration(
         main={"format": "YUV420", "size": (WIDTH2, HEIGHT2)},
         buffer_count=2
     )
     picam2.configure(config)
-    
-    # Iniciar DrmPreview después de picam2.start()
-    opcion_hdmi = CONFIG.get("hdmi")
-    if opcion_hdmi != "Off":
-        time.sleep(0.5)  # Esperar a que se estabilice
-        try:
-            picam2.start_preview(DrmPreview(x=0, y=0, width=1920, height=1080))
-            logger.info("✅ DrmPreview iniciado para HDMI (1920x1080)")
-        except Exception as e:
-            logger.error(f"⚠️ No se pudo iniciar DrmPreview: {e}")
-
     picam2.start()
+    time.sleep(0.2)
+    drm_started = start_drm_preview(picam2)
+    if not drm_started:
+        try:
+            show_fallback_image(CONFIG, force=True)
+        except Exception as exc:
+            logger.warning("No se pudo mostrar la imagen de fallback: %s", exc)
+    # start overlay thread if enabled
+    try:
+        cfg = load_config()
+        if cfg.get("hdmi_overlay", True):
+            overlay_thread, overlay_stop = start_overlay_updater(picam2, interval=1.0)
+        else:
+            logger.info("Overlay HDMI desactivado por configuración (hdmi_overlay=False)")
+    except Exception:
+        logger.debug("No se pudo iniciar overlay updater thread (foto)")
     aplicar_camara_config(picam2, True)
 
     changeRunningCamera(True)
@@ -99,8 +126,9 @@ def video_stream_thread():
                 frame = picam2.capture_array("main")
                 # DrmPreview maneja la salida HDMI automaticamente
                 if fotoTake:
-                    print("fototate")
                     start_blink()
+                    carpeta = resolve_storage_dir("fotos", load_config())
+                    os.makedirs(carpeta, exist_ok=True)
                     for i in range(10):  # cantidad de fotos
                         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                         nombre_archivo = f"foto_{timestamp}.jpg"
@@ -113,24 +141,30 @@ def video_stream_thread():
                 latest_frame = memoryview(frame)
             except Exception as e:
                 stop_error = True
-                print("❌ Error capturando frame:", e)
-                PrintImageDisplay("img/error_stream.png")
+                logger.error("❌ Error capturando frame: %s", e)
                 stop_blink()
                 changeRunningCamera(False)
     except Exception as e:
         stop_error = True
-        print("❌ Error en hilo video:", e)
-        PrintImageDisplay("img/error_stream.png")
+        logger.error("❌ Error en hilo video: %s", e)
         stop_blink()
         changeRunningCamera(False)
     finally:
         video_thread_running.clear()
         picam2.close()
-        cv2.destroyAllWindows()
         # DrmPreview se cierra automaticamente con picam2
         print("🔴 Hilo de captura de foto parado.")
-        PrintImageDisplay("img/error_stream.png")
         stop_blink()
+        # stop overlay thread if running
+        try:
+            if overlay_stop:
+                overlay_stop.set()
+            if overlay_thread and overlay_thread.is_alive():
+                overlay_thread.join(timeout=1)
+            overlay_stop = None
+            overlay_thread = None
+        except Exception:
+            pass
         changeRunningCamera(False)
 
 last_restart_time = 0
@@ -155,8 +189,7 @@ def restart_foto_thread():
     video_thread_running.set()
     video_thread = threading.Thread(target=video_stream_thread, daemon=True)
     video_thread.start()
-    preview_thread = Thread(target=lcd_preview_thread)
-    preview_thread.start()
+
 
 
 def capture_foto():
@@ -174,55 +207,3 @@ def apply_config_to_active_camera_foto(todo=False):
     if picam2 is not None:
         aplicar_camara_config(picam2, todo)
         CONFIG = load_config()
-
-def lcd_preview_thread():
-    global latest_frame, CONFIG
-    start_time = datetime.now()
-    last_cfg_update = 0
-    UPDATE_DELAY = 2   # actualizar cada 2 segundos
-    
-    ae_mode = "AUTO"
-    wb_mode = "AUTO"
-    
-    WIDTH2, HEIGHT2 = 4608, 2592
-    try:
-        while video_thread_running.is_set():
-            if not getMonitorState():
-                time.sleep(0.1)
-                continue
-                
-            if getInMenuState():
-                time.sleep(0.1)
-                continue
-                
-            if latest_frame is None:
-                time.sleep(0.01)
-                continue
-                
-            # Actualizar CONFIG cada X segundos
-            now = time.time()
-            if now - last_cfg_update >= UPDATE_DELAY:
-                try:
-                    CONFIG = load_config()
-                    last_cfg_update = now
-                except:
-                    pass
-                
-                ae_mode = "AUTO"
-                if not CONFIG.get("AeEnable"):
-                    ae_mode = "MANUAL"
-                
-                wb_mode = "AUTO"
-                if not CONFIG.get("AwbEnable"):
-                    wb_mode = "MANUAL"
-                
-            elapsed_seconds = (datetime.now() - start_time).seconds
-            zm = 0
-            Alevel = 100
-            mute = True
-            
-            lcd_preview.show(latest_frame, width=WIDTH2, height=HEIGHT2, fps=15, elapsed_seconds=elapsed_seconds, af_mode=ae_mode, wb_mode=wb_mode, zm=zm, recording=False, stream_active=fotoTake, mode="FOT", Alevel=Alevel, mute=mute)
-            
-            time.sleep(0.01)
-    except Exception as e:
-        print("Error en lcd_preview_thread_fast:", e)

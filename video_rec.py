@@ -2,69 +2,105 @@ import threading
 import time
 import subprocess
 import logging
-from flask import request
 from picamera2 import Picamera2
 from picamera2.previews import DrmPreview
-import cv2
-from camera_config import WIDTH, HEIGHT, TARGET_FPS, IPDestino, aplicar_camara_config, generar_sdp, CONFIG, picam2, load_config, changeRunningCamera, getMute, get_audio_level
-from threading import Thread
-from lcd_preview import LCDPreview, monitorState, PrintImageDisplay, InMenu, lcd_preview, getInMenuState, getMonitorState
-from queue import Queue
-from PIL import Image, ImageOps
-from queue import Empty
-import time
-import numpy as np
-from datetime import datetime
-from video_stream import (
-    zoom_lock, zoom_state, zoom_var, zoom_loop, zoom, zoom_yuv420
-)
-import os, psutil
+from camera_config import aplicar_camara_config, CONFIG, picam2, load_config, changeRunningCamera, resolve_storage_dir, build_audio_monitor_plan, resolve_audio_monitor_plan
+from camera_utils import release_camera_resources
+import os
 import shutil
+from overlay_utils import start_overlay_updater
+from hdmi_fallback import show_fallback_image
 
 logger = logging.getLogger(__name__)
 
-video_thread = None
-preview_thread = None
+AUDIO_BITRATE = "192k"
 
+
+def remux_recording_to_mp4(temp_path, final_path):
+    try:
+        remux_cmd = [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-nostats",
+            "-i", temp_path,
+            "-c", "copy",
+            "-movflags", "+faststart",
+            final_path
+        ]
+        subprocess.run(remux_cmd, check=True)
+        logger.info("✅ Remuxed recording to MP4: %s", final_path)
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error("❌ Error remuxing %s to %s: %s", temp_path, final_path, e)
+        return False
+
+
+def start_drm_preview(picam2):
+    if picam2 is None:
+        return False
+    opcion_hdmi = CONFIG.get("hdmi")
+    if opcion_hdmi == "Off":
+        return False
+    try:
+        if hasattr(picam2, 'stop_preview'):
+            try:
+                picam2.stop_preview()
+            except Exception:
+                pass
+        time.sleep(0.2)
+        picam2.start_preview(DrmPreview(x=0, y=0, width=2560, height=1440)) #LA SALIDA POR HDMI ESTA FIJADO A 2k
+        logger.info("✅ DrmPreview iniciado para HDMI")
+        return True
+    except Exception as e:
+        logger.error(f"⚠️ No se pudo iniciar DrmPreview: {e}")
+        return False
+
+
+def request_hdmi_restart():
+    if picam2 is None:
+        logger.warning("No hay cámara activa para reiniciar HDMI")
+        return False
+    logger.info("🔁 Reiniciando HDMI/DrmPreview")
+    return start_drm_preview(picam2)
+
+video_thread = None
 video_thread_running = threading.Event()
 
-proc_audio_hdmi = None
-
-latest_frame = None  # va a contener siempre el último frame
-frame_lock = threading.Lock()
+# Overlay control
+overlay_thread = None
+overlay_stop = None
 
 recTake = False
 
 # Crear carpeta si no existe
-carpeta = "videos"
+carpeta = resolve_storage_dir("videos", CONFIG)
 os.makedirs(carpeta, exist_ok=True)
 
-def video_stream_thread():
-
-    def ensure_xdg_runtime_dir():
-        xr = os.environ.get("XDG_RUNTIME_DIR")
-        if xr and os.path.isdir(xr):
+def ensure_xdg_runtime_dir():
+    xr = os.environ.get("XDG_RUNTIME_DIR")
+    if xr and os.path.isdir(xr):
+        return
+    try:
+        uid = os.getuid()
+    except Exception:
+        uid = None
+    if uid:
+        candidate = f"/run/user/{uid}"
+        if os.path.isdir(candidate):
+            os.environ["XDG_RUNTIME_DIR"] = candidate
             return
-        try:
-            uid = os.getuid()
-        except Exception:
-            uid = None
-        if uid:
-            candidate = f"/run/user/{uid}"
-            if os.path.isdir(candidate):
-                os.environ["XDG_RUNTIME_DIR"] = candidate
-                return
-        fallback = f"/tmp/xdg-runtime-{os.getpid()}"
-        try:
-            os.makedirs(fallback, exist_ok=True)
-            os.chmod(fallback, 0o700)
-            os.environ["XDG_RUNTIME_DIR"] = fallback
-        except Exception:
-            os.environ["XDG_RUNTIME_DIR"] = "/tmp"
+    fallback = f"/tmp/xdg-runtime-{os.getpid()}"
+    try:
+        os.makedirs(fallback, exist_ok=True)
+        os.chmod(fallback, 0o700)
+        os.environ["XDG_RUNTIME_DIR"] = fallback
+    except Exception:
+        os.environ["XDG_RUNTIME_DIR"] = "/tmp"
+
+def video_stream_thread():
+    global overlay_thread, overlay_stop
     video_thread_running.set()
     logger.info("📡 Hilo de captura de rec iniciado.")
     
-    global picam2, zoom_state, latest_frame, frame_lock, recTake
+    global picam2, recTake
     from gpio_control import start_blink, stop_blink
 
     CONFIG = load_config()
@@ -75,47 +111,65 @@ def video_stream_thread():
     else:
         CONFIG["mic"] = ""
         logger.info("Micrófono desactivado o comentado con '!'. Solo de video.")
+    audio_plan = resolve_audio_monitor_plan(CONFIG)
+    if audio_plan["enabled"]:
+        logger.info("🎧 Monitor de audio activado para grabación: %s -> %s", audio_plan["monitor_source"], audio_plan["monitor_output"])
+    else:
+        logger.warning("⚠️ Monitor de audio desactivado para grabación: dispositivo ALSA no válido o no configurado")
     WIDTH, HEIGHT = map(int, CONFIG["resolution"].lower().split("x"))
     TARGET_FPS = CONFIG["fps"]
 
+    import camera_config
     picam2 = Picamera2()
+    camera_config.picam2 = picam2
     config = picam2.create_video_configuration(
-        main={"format": "YUV420", "size": (WIDTH, HEIGHT)}
+        main={"format": "YUV420", "size": (WIDTH, HEIGHT)},
+        controls={"FrameRate": int(TARGET_FPS)}
     )
     picam2.configure(config)
-    
-    # Iniciar DrmPreview después de picam2.start()
-    opcion_hdmi = CONFIG.get("hdmi")
-    if opcion_hdmi != "Off":
-        time.sleep(0.5)  # Esperar a que se estabilice
-        try:
-            picam2.start_preview(DrmPreview(x=0, y=0, width=1920, height=1080))
-            logger.info("✅ DrmPreview iniciado para HDMI (1920x1080)")
-        except Exception as e:
-            logger.error(f"⚠️ No se pudo iniciar DrmPreview: {e}")
-
     picam2.start()
+    time.sleep(0.2)
+    drm_started = start_drm_preview(picam2)
+    if not drm_started:
+        try:
+            show_fallback_image(CONFIG, force=True)
+        except Exception as exc:
+            logger.warning("No se pudo mostrar la imagen de fallback: %s", exc)
+    # start overlay thread if enabled
+    try:
+        cfg = load_config()
+        if cfg.get("hdmi_overlay", True):
+            overlay_thread, overlay_stop = start_overlay_updater(picam2, interval=1.0)
+        else:
+            logger.info("Overlay HDMI desactivado por configuración (hdmi_overlay=False)")
+    except Exception:
+        logger.debug("No se pudo iniciar overlay updater thread (rec)")
     aplicar_camara_config(picam2, True)
     
     changeRunningCamera(True)
     
     stop_error = False
     recording = False
+    ffmpeg_proc = None
+    monitor_proc = None
+    temp_output_name = None
+    final_output_name = None
     
     try:
         while video_thread_running.is_set() and not stop_error:
             frame = picam2.capture_array("main")
-            current_zoom = zoom_state['factor']
-            frame = zoom_yuv420(frame, WIDTH, HEIGHT, current_zoom)
             # DrmPreview maneja la salida HDMI automáticamente
             
             if recTake and not recording:
                 print("🎬 Iniciando grabación...")
-                output_name = os.path.join(carpeta, time.strftime("record_%Y%m%d_%H%M%S.mp4"))
+                carpeta = resolve_storage_dir("videos", load_config())
+                os.makedirs(carpeta, exist_ok=True)
+                temp_output_name = os.path.join(carpeta, time.strftime("record_%Y%m%d_%H%M%S.mkv"))
+                final_output_name = temp_output_name[:-4] + ".mp4"
                 # Reordenado y optimizado
                 cmd = [
                     "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-nostats",
-                    "-thread_queue_size", "1024",
+                    "-thread_queue_size", "8",
                     "-f", "rawvideo",
                     "-pix_fmt", "yuv420p",
                     "-s", f"{WIDTH}x{HEIGHT}",
@@ -124,11 +178,12 @@ def video_stream_thread():
                 ]
 
                 if CONFIG.get("mic"):
+                    audio_input_device = audio_plan.get("monitor_source") or CONFIG.get("mic")
                     cmd.extend([
                         "-thread_queue_size", "4096",
                         "-f", "alsa",
                         "-ac", "2", # Tu log dice que el mic es stereo
-                        "-i", CONFIG.get("mic"), # Entrada de audio
+                        "-i", audio_input_device, # Entrada de audio
                     ])
 
                 # Salida y Códecs
@@ -142,10 +197,26 @@ def video_stream_thread():
                 if CONFIG.get("mic"):
                     cmd.extend([
                         "-c:a", "aac",
-                        "-b:a", "128k",
+                        "-b:a", AUDIO_BITRATE,
                         "-map", "0:v", "-map", "1:a"
                     ])
-                cmd.append(output_name)
+                cmd.append(temp_output_name)
+                if audio_plan.get("enabled"):
+                    monitor_output = audio_plan.get("monitor_output") or "default"
+                    monitor_cmd = [
+                        "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-nostats",
+                        "-thread_queue_size", "4096",
+                        "-f", "alsa", "-ar", "48000", "-ac", "1",
+                        "-i", audio_plan.get("monitor_source"),
+                        "-vn",
+                        "-f", "alsa", "-acodec", "pcm_s16le", "-ar", "48000", "-ac", "1",
+                        monitor_output
+                    ]
+                    with open("audio_monitor_log.txt", "wb") as f:
+                        monitor_proc = subprocess.Popen(monitor_cmd, stdout=f, stderr=subprocess.STDOUT)
+                        if monitor_proc.poll() is not None:
+                            logger.warning("El proceso del monitor de audio para grabación falló al arrancar; se desactiva")
+                            monitor_proc = None
                 with open("rec_log.txt", "wb") as f:
                     ffmpeg_proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT)
                 recording = True
@@ -157,14 +228,22 @@ def video_stream_thread():
                         ffmpeg_proc.stdin.close()
                     except:
                         pass
-                for p in [ffmpeg_proc]:
+                for p in [ffmpeg_proc, monitor_proc]:
                     if p:
                         try:
                             p.terminate()
-                            p.wait(timeout=2) 
+                            p.wait(timeout=2)
                         except subprocess.TimeoutExpired:
                             p.kill()
-                ffmpeg_proc = None            
+                if temp_output_name and final_output_name and os.path.exists(temp_output_name):
+                    if remux_recording_to_mp4(temp_output_name, final_output_name):
+                        try:
+                            os.remove(temp_output_name)
+                        except Exception:
+                            pass
+                ffmpeg_proc = None
+                temp_output_name = None
+                final_output_name = None
                 recording = False
                 stop_blink()
             if recording and ffmpeg_proc:
@@ -172,48 +251,75 @@ def video_stream_thread():
                     ffmpeg_proc.stdin.write(memoryview(frame))
                 except Exception as e:
                     print("⚠️ Error escribiendo a ffmpeg_proc stdin:", e)
+                    recording = False
+                    recTake = False
+                    if ffmpeg_proc and ffmpeg_proc.stdin:
+                        try:
+                            ffmpeg_proc.stdin.close()
+                        except:
+                            pass
+                    try:
+                        ffmpeg_proc.terminate()
+                        ffmpeg_proc.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        ffmpeg_proc.kill()
+                    ffmpeg_proc = None
             # DrmPreview maneja la salida HDMI automáticamente
-            latest_frame = memoryview(frame)
     except Exception as e:
         stop_error = True
-        print("❌ Error en hilo video:", e)
-        PrintImageDisplay("img/error_stream.png")
+        logger.error("❌ Error en hilo video: %s", e)
         stop_blink()
         changeRunningCamera(False)
     finally:
         video_thread_running.clear()
-        picam2.close()
-        cv2.destroyAllWindows()
+        try:
+            release_camera_resources(picam2, wait_seconds=0.2)
+        except Exception:
+            pass
         # DrmPreview se cierra automaticamente con picam2
         print("🔴 Hilo de captura de rec parado.")
-        PrintImageDisplay("img/error_stream.png")
         stop_blink()
+        # stop overlay thread if running
+        try:
+            if overlay_stop:
+                overlay_stop.set()
+            if overlay_thread and overlay_thread.is_alive():
+                overlay_thread.join(timeout=1)
+            overlay_stop = None
+            overlay_thread = None
+        except Exception:
+            pass
         changeRunningCamera(False)
 
 last_restart_time = 0
 debounce_delay = 1.0  # segundos
+
 def restart_rec_thread():
     global video_thread, picam2, last_restart_time
     
     now = time.time()
     if now - last_restart_time < debounce_delay:
-        print("⏳ Ignorado: debounce activo.")
+        logger.debug("⏳ Ignorado: debounce activo.")
         return
     last_restart_time = now
 
     if video_thread and video_thread.is_alive():
-        print("🔁 Deteniendo hilo de captura...")
+        logger.info("🔁 Deteniendo hilo de captura...")
     video_thread_running.clear()
     if video_thread and video_thread.is_alive():
-        video_thread.join()
-    time.sleep(1)
+        video_thread.join(timeout=3)
+    if picam2 is not None:
+        try:
+            release_camera_resources(picam2, wait_seconds=0.2)
+        except Exception:
+            pass
+        picam2 = None
+    time.sleep(0.5)
 
-    print("▶️ Iniciando nuevos hilos de rec...")
+    logger.info("▶️ Iniciando nuevos hilos de rec...")
     video_thread_running.set()
     video_thread = threading.Thread(target=video_stream_thread, daemon=True)
     video_thread.start()
-    preview_thread = Thread(target=lcd_preview_thread, daemon=True)
-    preview_thread.start()
 
 
 def capture_rec():
@@ -221,7 +327,7 @@ def capture_rec():
     
     now = time.time()
     if now - last_restart_time < debounce_delay:
-        print("⏳ Ignorado: debounce activo.")
+        logger.debug("⏳ Ignorado: debounce activo.")
         return
     last_restart_time = now
     
@@ -234,6 +340,7 @@ def apply_config_to_active_camera_rec(todo=False):
         old_resolution = str(CONFIG.get("resolution", ""))
         old_fps = str(CONFIG.get("fps", ""))
         old_bitrate = str(CONFIG.get("bitrate", ""))
+        old_mic = str(CONFIG.get("mic", ""))
 
         # Aplicar configuración a la cámara activa
         aplicar_camara_config(picam2, todo)
@@ -243,14 +350,15 @@ def apply_config_to_active_camera_rec(todo=False):
         new_resolution = str(CONFIG.get("resolution", ""))
         new_fps = str(CONFIG.get("fps", ""))
         new_bitrate = str(CONFIG.get("bitrate", ""))
+        new_mic = str(CONFIG.get("mic", ""))
 
-        # Si hay cambios en resolución, fps o bitrate, reiniciar hilo de grabación
-        if todo or (old_resolution != new_resolution) or (old_fps != new_fps) or (old_bitrate != new_bitrate):
-            print("🔁 Cambios críticos en config detectados; reiniciando hilo de grabación.")
+        # Si hay cambios en resolución, fps, bitrate o micrófono, reiniciar hilo de grabación
+        if todo or (old_resolution != new_resolution) or (old_fps != new_fps) or (old_bitrate != new_bitrate) or (old_mic != new_mic):
+            logger.info("🔁 Cambios críticos en config detectados; reiniciando hilo de grabación.")
             try:
                 restart_rec_thread()
             except Exception as e:
-                print("❌ Error reiniciando hilo rec:", e)
+                logger.error("❌ Error reiniciando hilo rec: %s", e)
 
 ESTIMADO_MB_POR_MINUTO = 370
 minutos_restantes = 0
@@ -261,86 +369,3 @@ def minutos_disponibles(path="/home/pi/Unicam/videos"):
     libre_mb = libre / (1024 * 1024)
     # Calcula minutos disponibles
     return int(libre_mb / ESTIMADO_MB_POR_MINUTO)
-
-def set_low_priority():
-    p = psutil.Process(os.getpid())
-    try:
-        p.nice(10)  # mayor número = menos prioridad (Linux)
-    except Exception:
-        pass
-
-def lcd_preview_thread(): 
-    set_low_priority()
-    global latest_frame, CONFIG, minutos_restantes
-    start_time = datetime.now()
-    recording = False
-    last_info_update = 0
-    minutos_restantes = minutos_disponibles()
-    last_cfg_update = 0
-    UPDATE_DELAY = 2   # actualizar cada 2 segundos
-    ae_mode = "AUTO"
-    wb_mode = "AUTO"
-    
-    try:
-        while video_thread_running.is_set():   
-            if not getMonitorState():
-                time.sleep(0.1)
-                continue
-                
-            if getInMenuState():
-                time.sleep(0.1)
-                continue
-                
-            if latest_frame is None:
-                time.sleep(0.01)
-                continue
-                
-            elapsed_seconds = 0
-                
-            if recording and not recTake:
-                recording = False
-                
-            if not recording and recTake:
-                start_time = datetime.now()
-                recording = True
-                
-            if recording and recTake:
-                elapsed_seconds = (datetime.now() - start_time).seconds
-                
-            if time.time() - last_info_update > 60:
-                minutos_restantes = minutos_disponibles()
-                last_info_update = time.time()
-                
-            # Actualizar CONFIG cada X segundos
-            Alevel = 100
-            mute = True
-            now = time.time()
-            if now - last_cfg_update >= UPDATE_DELAY:
-                try:
-                    CONFIG = load_config()
-                    last_cfg_update = now
-                except:
-                    pass
-                
-                ae_mode = "AUTO"
-                if not CONFIG.get("AeEnable"):
-                    ae_mode = "MANUAL"
-                
-                wb_mode = "AUTO"
-                if not CONFIG.get("AwbEnable"):
-                    wb_mode = "MANUAL"
-                    
-                if getMute():
-                    Alevel = 100
-                    mute = True
-                else:
-                    Alevel = 44#get_audio_level()
-                    mute = False
-                    
-            zm = round(zoom_state['factor'], 2)
-            
-            lcd_preview.show(memoryview(latest_frame), width=WIDTH, height=HEIGHT, fps=TARGET_FPS, elapsed_seconds=elapsed_seconds, af_mode=ae_mode, wb_mode=wb_mode, zm=zm, recording=recTake, stream_active=False, mode="REC", Alevel=Alevel, mute=mute, bitrate=f"{minutos_restantes}M")
-            
-            time.sleep(0.01)
-    except Exception as e:
-        print("Error en lcd_preview_thread_fast:", e)
